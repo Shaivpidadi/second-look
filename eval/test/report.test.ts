@@ -7,6 +7,7 @@ function result(overrides: Partial<ArmResult> = {}): ArmResult {
   return {
     arm: "check-digit-only",
     available: true,
+    stubbed: false,
     forms: [
       { formId: "a", expected: true, flagged: true, latencyMs: 2, costUsd: 0 },
       { formId: "b", expected: true, flagged: false, latencyMs: 4, costUsd: 0 },
@@ -51,12 +52,14 @@ describe("report", () => {
     assert.equal(summary.recall, null);
   });
 
-  it("formats a table with stubbed arms marked", () => {
+  it("labels stubbed arms and marks unavailable ones", () => {
     const text = formatReport([
       summarize(result()),
-      summarize(result({ arm: "tiered", available: false, forms: [] })),
+      summarize(result({ arm: "tiered", stubbed: true })),
+      summarize(result({ arm: "offline", available: false, forms: [] })),
     ]);
-    assert.match(text, /check-digit-only/);
-    assert.match(text, /\| tiered \| stubbed \|/);
+    assert.match(text, /\| check-digit-only \|/);
+    assert.match(text, /\| tiered \(stubbed\) \|/);
+    assert.match(text, /\| offline \| unavailable \|/);
   });
 });

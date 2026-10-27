@@ -33,7 +33,7 @@ function argValue(args: string[], name: string, fallback: string): string {
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const seed = Number(argValue(args, "--seed", "1"));
-  const count = Number(argValue(args, "--count", "5"));
+  const count = Number(argValue(args, "--count", "100"));
   const out =
     args.includes("--out") && args[args.indexOf("--out") + 1]
       ? args[args.indexOf("--out") + 1]!

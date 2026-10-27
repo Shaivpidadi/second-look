@@ -3,6 +3,7 @@ import type { ArmResult } from "./runner.ts";
 export interface ArmSummary {
   arm: string;
   available: boolean;
+  stubbed: boolean;
   forms: number;
   flagged: number;
   truePositives: number;
@@ -39,6 +40,7 @@ export function summarize(result: ArmResult): ArmSummary {
   return {
     arm: result.arm,
     available: result.available,
+    stubbed: result.stubbed,
     forms: result.forms.length,
     flagged: tp + fp,
     truePositives: tp,
@@ -56,15 +58,17 @@ function pct(value: number | null): string {
   return value === null ? "n/a" : `${(value * 100).toFixed(1)}%`;
 }
 
-/** One Markdown table comparing arms; stubbed arms show as such. */
+/** One Markdown table comparing arms; stubbed arms say so in the name. */
 export function formatReport(summaries: ArmSummary[]): string {
   const header =
     "| arm | forms | flagged | precision | recall | avg latency | cost |\n" +
     "| --- | ---: | ---: | ---: | ---: | ---: | ---: |";
-  const rows = summaries.map((s) =>
-    s.available
-      ? `| ${s.arm} | ${s.forms} | ${s.flagged} | ${pct(s.precision)} | ${pct(s.recall)} | ${s.avgLatencyMs.toFixed(1)}ms | $${s.totalCostUsd.toFixed(4)} |`
-      : `| ${s.arm} | stubbed | — | — | — | — | — |`,
-  );
+  const rows = summaries.map((s) => {
+    if (!s.available) {
+      return `| ${s.arm} | unavailable | — | — | — | — | — |`;
+    }
+    const name = s.stubbed ? `${s.arm} (stubbed)` : s.arm;
+    return `| ${name} | ${s.forms} | ${s.flagged} | ${pct(s.precision)} | ${pct(s.recall)} | ${s.avgLatencyMs.toFixed(1)}ms | $${s.totalCostUsd.toFixed(4)} |`;
+  });
   return ["# Second Look eval report", "", ...[header, ...rows]].join("\n") + "\n";
 }

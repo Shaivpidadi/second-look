@@ -17,6 +17,7 @@ export interface FormResult {
 export interface ArmResult {
   arm: string;
   available: boolean;
+  stubbed: boolean;
   forms: FormResult[];
 }
 
@@ -38,7 +39,7 @@ export async function runArm(
   forms: GeneratedForm[],
 ): Promise<ArmResult> {
   if (!arm.available) {
-    return { arm: arm.name, available: false, forms: [] };
+    return { arm: arm.name, available: false, stubbed: arm.stubbed, forms: [] };
   }
   const results: FormResult[] = [];
   for (const form of forms) {
@@ -51,7 +52,7 @@ export async function runArm(
       costUsd: verdict.costUsd,
     });
   }
-  return { arm: arm.name, available: true, forms: results };
+  return { arm: arm.name, available: true, stubbed: arm.stubbed, forms: results };
 }
 
 /** Run every arm over the corpus directory. */

@@ -4,8 +4,17 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildForm } from "@second-look/generator";
-import { checkDigitArm, crossDocArm, singleModelArm } from "../arms.ts";
+import { checkDigitArm, tieredArm, type EvalArm } from "../arms.ts";
 import { loadCorpus, runArm, runEval } from "../runner.ts";
+
+const offlineArm: EvalArm = {
+  name: "offline",
+  available: false,
+  stubbed: false,
+  async judge() {
+    throw new Error("offline arm: not implemented (needs MODEL_API_KEY)");
+  },
+};
 
 describe("runner", () => {
   let dir: string;
@@ -32,6 +41,7 @@ describe("runner", () => {
     const [result] = await runEval(dir, [checkDigitArm]);
     assert.equal(result?.arm, "check-digit-only");
     assert.equal(result?.available, true);
+    assert.equal(result?.stubbed, false);
     assert.equal(result?.forms.length, 3);
     for (const form of result?.forms ?? []) {
       const source = buildForm(
@@ -42,17 +52,24 @@ describe("runner", () => {
     }
   });
 
-  it("runs available arms and skips stubbed ones", async () => {
-    const results = await runEval(dir, [crossDocArm, singleModelArm]);
-    const [cross, stub] = results;
-    assert.equal(cross?.available, true);
-    assert.equal(cross?.forms.length, 3);
+  it("carries the stubbed flag from the arm", async () => {
+    const [result] = await runEval(dir, [tieredArm]);
+    assert.equal(result?.available, true);
+    assert.equal(result?.stubbed, true);
+    assert.equal(result?.forms.length, 3);
+  });
+
+  it("runs available arms and skips unavailable ones", async () => {
+    const results = await runEval(dir, [tieredArm, offlineArm]);
+    const [tiered, stub] = results;
+    assert.equal(tiered?.available, true);
+    assert.equal(tiered?.forms.length, 3);
     assert.equal(stub?.available, false);
     assert.deepEqual(stub?.forms, []);
   });
 
-  it("runArm returns empty results for stubbed arms", async () => {
-    const result = await runArm(singleModelArm, await loadCorpus(dir));
+  it("runArm returns empty results for unavailable arms", async () => {
+    const result = await runArm(offlineArm, await loadCorpus(dir));
     assert.equal(result.available, false);
     assert.deepEqual(result.forms, []);
   });
