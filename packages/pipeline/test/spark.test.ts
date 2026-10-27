@@ -182,6 +182,28 @@ describe("RealSparkAdapter verified shapes", () => {
     assert.ok(out.costUsd < sparkCostUsd(1000, 100, 0));
   });
 
+  it("parses the unreadable field list when present", async () => {
+    const fetchImpl = (async () =>
+      responsesMessage(
+        '{"explanation": "blur", "flagged": false, "unreadable": ["awb.awbNumber", 7]}',
+      )) as unknown as typeof fetch;
+    const out = await new RealSparkAdapter({ fetchImpl }).escalate({
+      readings: [],
+      crops: [],
+      question: "q",
+    });
+    assert.deepEqual(out.unreadable, ["awb.awbNumber"]);
+
+    const plain = (async () =>
+      responsesMessage('{"explanation": "ok", "flagged": false}')) as unknown as typeof fetch;
+    const readable = await new RealSparkAdapter({ fetchImpl: plain }).escalate({
+      readings: [],
+      crops: [],
+      question: "q",
+    });
+    assert.equal(readable.unreadable, undefined);
+  });
+
   it("retries a 429 through the shared transport", async () => {
     let calls = 0;
     const fetchImpl = (async () => {

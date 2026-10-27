@@ -15,6 +15,8 @@ export interface ArmSummary {
   recall: number | null;
   avgLatencyMs: number;
   totalCostUsd: number;
+  /** Forms the arm abstained on (needs-human); scored as judged. */
+  abstained: number;
 }
 
 function rate(numerator: number, denominator: number): number | null {
@@ -29,11 +31,13 @@ export function summarize(result: ArmResult): ArmSummary {
   let fn = 0;
   let latencyMs = 0;
   let costUsd = 0;
+  let abstained = 0;
   for (const form of result.forms) {
     if (form.flagged && form.expected) tp++;
     else if (form.flagged) fp++;
     else if (form.expected) fn++;
     else tn++;
+    if (form.abstained) abstained++;
     latencyMs += form.latencyMs;
     costUsd += form.costUsd;
   }
@@ -51,6 +55,7 @@ export function summarize(result: ArmResult): ArmSummary {
     recall: rate(tp, tp + fn),
     avgLatencyMs: result.forms.length === 0 ? 0 : latencyMs / result.forms.length,
     totalCostUsd: costUsd,
+    abstained,
   };
 }
 

@@ -30,6 +30,21 @@ describe("report", () => {
     assert.equal(summary.recall, 0.5);
     assert.equal(summary.avgLatencyMs, 5);
     assert.equal(summary.totalCostUsd, 0);
+    assert.equal(summary.abstained, 0);
+  });
+
+  it("counts abstentions without changing precision/recall", () => {
+    const summary = summarize(
+      result({
+        forms: [
+          { formId: "a", expected: true, flagged: false, latencyMs: 1, costUsd: 0, abstained: true },
+          { formId: "b", expected: false, flagged: false, latencyMs: 1, costUsd: 0, abstained: true },
+        ],
+      }),
+    );
+    assert.equal(summary.abstained, 2);
+    assert.equal(summary.recall, 0);
+    assert.equal(summary.precision, null);
   });
 
   it("reports null precision when nothing is flagged", () => {

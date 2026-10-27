@@ -16,6 +16,8 @@ import { paperValues, type GeneratedForm } from "@second-look/generator";
 
 export interface ArmInput {
   form: GeneratedForm;
+  /** Document images by doc type; loaded when the arm needs images. */
+  images?: Record<string, Uint8Array>;
 }
 
 export interface ArmVerdict {
@@ -23,6 +25,8 @@ export interface ArmVerdict {
   failures: FieldCheck[];
   latencyMs: number;
   costUsd: number;
+  /** True when the arm abstained (needs-human) instead of judging. */
+  abstained?: boolean;
 }
 
 /**
@@ -35,6 +39,8 @@ export interface EvalArm {
   name: string;
   available: boolean;
   stubbed: boolean;
+  /** When true, the runner loads the form's document images for judge(). */
+  needsImages?: boolean;
   judge(input: ArmInput): Promise<ArmVerdict>;
 }
 
@@ -231,4 +237,87 @@ export function createRealArms(options: RealArmOptions = {}): EvalArm[] {
     },
   };
   return [singleModelReal, tieredReal];
+}
+
+/** Document image order for the vision arm (matches the prompt). */
+export const VISION_DOCS = ["bol", "awb", "invoice", "packing", "pod", "label"] as const;
+
+/**
+ * Vision judging rubric. The model reads paper values from the images
+ * (no paper text is sent) and compares against the typed lines. Fields
+ * it cannot read go under "unreadable" instead of being guessed, so the
+ * arm abstains on degraded fields rather than silently passing them.
+ * This baseline sees full images with no redaction.
+ */
+export const VISION_JUDGE_QUESTION = [
+  "Vision judge: read every field's PAPER value from the attached document images,",
+  "in order: bill of lading, air waybill, commercial invoice, packing list,",
+  "proof of delivery, pallet SSCC label. The readings below carry only TYPED values.",
+  "Flag when: (1) a readable paper value differs from its typed value, except notes;",
+  "(2) any cross-document pair disagrees exactly: invoice.totalQty vs packing.totalQty,",
+  "bol.weightKg vs awb.weightKg, pod.receivedCartons vs bol.cartons.",
+  "Use kind field_match for (1), cross_doc for (2).",
+  'List fields you cannot read (blur, glare, skew) under "unreadable" instead of guessing.',
+  "Every injected error shows as a paper/typed diff or a cross-document gap, so no check-digit math is needed.",
+  "Decide quickly and reply immediately with ONLY the JSON object.",
+].join(" ");
+
+export interface VisionArmOptions {
+  fetchImpl?: typeof fetch;
+  maxOutputTokens?: number;
+}
+
+/**
+ * Live vision arm: one Spark call per form over all six document images
+ * plus typed values. Abstains (needs-human) when the model reports
+ * unreadable fields; available only with a key, never in ALL_ARMS.
+ */
+export function createVisionArms(options: VisionArmOptions = {}): EvalArm[] {
+  const available = Boolean(process.env.MODEL_API_KEY ?? process.env.META_API_KEY);
+  const visionReal: EvalArm = {
+    name: "vision-real",
+    available,
+    stubbed: false,
+    needsImages: true,
+    async judge({ form, images }) {
+      const crops = VISION_DOCS.flatMap((doc) => {
+        const image = images?.[doc];
+        return image
+          ? [{ box: { x: 0, y: 0, width: 1000, height: 1400 }, image }]
+          : [];
+      });
+      if (crops.length === 0) {
+        throw new Error(
+          `vision-real: ${form.form.formId} has no document images (expected <formId>-{${VISION_DOCS.join(",")}}.png next to the corpus JSON)`,
+        );
+      }
+      const started = performance.now();
+      const spark = await new RealSparkAdapter({
+        fetchImpl: options.fetchImpl,
+        maxOutputTokens: options.maxOutputTokens ?? 1536,
+        maxImages: VISION_DOCS.length,
+      }).escalate({
+        readings: Object.entries(form.typed).map(([fieldId, typedValue]) => ({
+          fieldId,
+          paperValue: null,
+          typedValue,
+        })),
+        crops,
+        question: VISION_JUDGE_QUESTION,
+      });
+      if (!spark.judgment) {
+        throw new Error(
+          `vision-real: ${form.form.formId} returned no judgment (explanation: ${spark.explanation.slice(0, 160)})`,
+        );
+      }
+      return {
+        flagged: spark.judgment.flagged,
+        failures: spark.judgment.failures,
+        latencyMs: performance.now() - started,
+        costUsd: spark.costUsd,
+        abstained: (spark.unreadable?.length ?? 0) > 0,
+      };
+    },
+  };
+  return [visionReal];
 }

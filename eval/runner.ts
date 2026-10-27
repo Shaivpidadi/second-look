@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { GeneratedForm } from "@second-look/generator";
 import { getCallStats, loadDotEnv } from "@second-look/pipeline";
-import { ALL_ARMS, createRealArms, type EvalArm } from "./arms.ts";
+import { ALL_ARMS, createRealArms, createVisionArms, type EvalArm } from "./arms.ts";
 import { formatReport, summarize } from "./report.ts";
 
 export interface FormResult {
@@ -13,6 +13,8 @@ export interface FormResult {
   flagged: boolean;
   latencyMs: number;
   costUsd: number;
+  /** True when the arm abstained (needs-human) on this form. */
+  abstained?: boolean;
 }
 
 export interface ArmResult {
@@ -34,23 +36,49 @@ export async function loadCorpus(dir: string): Promise<GeneratedForm[]> {
   );
 }
 
+const IMAGE_DOCS = ["bol", "awb", "invoice", "packing", "pod", "label"];
+
+/** Load a form's document images; absent files are skipped, not fatal. */
+async function loadFormImages(
+  corpusDir: string,
+  formId: string,
+): Promise<Record<string, Uint8Array>> {
+  const images: Record<string, Uint8Array> = {};
+  for (const doc of IMAGE_DOCS) {
+    try {
+      images[doc] = new Uint8Array(
+        await readFile(join(corpusDir, `${formId}-${doc}.png`)),
+      );
+    } catch {
+      // Leave absent images out; the arm reports an empty set loudly.
+    }
+  }
+  return images;
+}
+
 /** Run one arm over every form; unavailable arms come back empty. */
 export async function runArm(
   arm: EvalArm,
   forms: GeneratedForm[],
+  corpusDir?: string,
 ): Promise<ArmResult> {
   if (!arm.available) {
     return { arm: arm.name, available: false, stubbed: arm.stubbed, forms: [] };
   }
   const results: FormResult[] = [];
   for (const form of forms) {
-    const verdict = await arm.judge({ form });
+    const images =
+      arm.needsImages && corpusDir
+        ? await loadFormImages(corpusDir, form.form.formId)
+        : undefined;
+    const verdict = await arm.judge({ form, images });
     results.push({
       formId: form.form.formId,
       expected: form.errors.length > 0,
       flagged: verdict.flagged,
       latencyMs: verdict.latencyMs,
       costUsd: verdict.costUsd,
+      abstained: verdict.abstained,
     });
   }
   return { arm: arm.name, available: true, stubbed: arm.stubbed, forms: results };
@@ -75,7 +103,7 @@ export async function runEval(
   const forms = limit === undefined ? loaded : loaded.slice(0, limit);
   const results: ArmResult[] = [];
   for (const arm of arms) {
-    results.push(await runArm(arm, forms));
+    results.push(await runArm(arm, forms, corpusDir));
   }
   return results;
 }
@@ -87,7 +115,7 @@ function argValue(args: string[], name: string): string | undefined {
 
 /** All selectable arms: defaults plus live-model arms (built after .env). */
 export function selectableArms(): EvalArm[] {
-  return [...ALL_ARMS, ...createRealArms()];
+  return [...ALL_ARMS, ...createRealArms(), ...createVisionArms()];
 }
 
 async function main(): Promise<void> {
@@ -111,6 +139,15 @@ async function main(): Promise<void> {
     await writeFile(out, JSON.stringify(results, null, 2));
   }
   console.log(formatReport(results.map(summarize)));
+  for (const result of results) {
+    const abstained = result.forms.filter((form) => form.abstained);
+    if (result.available && abstained.length > 0) {
+      console.log(
+        `needs-human abstentions: ${result.arm} ${abstained.length}/${result.forms.length} ` +
+          `(${abstained.map((form) => form.formId).join(", ")})`,
+      );
+    }
+  }
   const stats = getCallStats();
   if (stats.httpCalls > 0) {
     console.log(

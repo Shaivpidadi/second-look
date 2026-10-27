@@ -38,6 +38,8 @@ export interface SparkEscalationOutput {
   usage?: SparkUsage;
   /** Structured judgment; absent when the reply carried no JSON verdict. */
   judgment?: SparkJudgment;
+  /** Field ids the model could not read; absent when all were readable. */
+  unreadable?: string[];
 }
 
 /** Spark adapter interface: cloud escalation for disagreements only. */
@@ -201,6 +203,11 @@ function parseJudgment(json: Record<string, unknown>): SparkJudgment | undefined
   };
 }
 
+function parseUnreadable(json: Record<string, unknown>): string[] | undefined {
+  if (!Array.isArray(json.unreadable)) return undefined;
+  return json.unreadable.filter((value): value is string => typeof value === "string");
+}
+
 function parseFixes(
   json: Record<string, unknown>,
   readings: FieldReading[],
@@ -319,6 +326,8 @@ export class RealSparkAdapter implements SparkAdapter {
     output.proposedFixes = parseFixes(json, input.readings);
     const judgment = parseJudgment(json);
     if (judgment) output.judgment = judgment;
+    const unreadable = parseUnreadable(json);
+    if (unreadable) output.unreadable = unreadable;
     return output;
   }
 }
