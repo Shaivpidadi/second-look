@@ -1,6 +1,7 @@
 import {
   computeAwbCheckDigit,
   computeContainerCheckDigit,
+  computeGs1CheckDigit,
 } from "@second-look/validators";
 import { digitString, int, pick, type Rng } from "./prng.ts";
 
@@ -37,12 +38,39 @@ export interface Pod {
   date: string;
 }
 
+export interface CommercialInvoice {
+  kind: "invoice";
+  invoiceNumber: string;
+  bolRef: string;
+  totalQty: number;
+  totalAmount: string;
+  currency: string;
+}
+
+export interface PackingList {
+  kind: "packing";
+  packingNumber: string;
+  bolRef: string;
+  totalQty: number;
+  lines: number;
+}
+
+export interface SsccLabel {
+  kind: "label";
+  sscc: string;
+  palletId: string;
+  cartons: number;
+}
+
 export interface SyntheticForm {
   formId: string;
   seed: number;
   bol: Bol;
   awb: AwbDoc;
+  invoice: CommercialInvoice;
+  packing: PackingList;
   pod: Pod;
+  label: SsccLabel;
 }
 
 const SHIPPERS = [
@@ -83,11 +111,19 @@ function generateContainerNumber(rng: Rng): string {
   return firstTen + computeContainerCheckDigit(firstTen);
 }
 
+function generateSscc(rng: Rng): string {
+  const firstSeventeen = digitString(rng, 1) + digitString(rng, 16);
+  return firstSeventeen + computeGs1CheckDigit(firstSeventeen);
+}
+
 export function generateForm(formId: string, seed: number, rng: Rng): SyntheticForm {
   const cartons = int(rng, 20, 400);
   const bolWeight = cartons * int(rng, 8, 25);
   const pieces = int(rng, 5, 120);
   const bolNumber = `BOL-${digitString(rng, 8)}`;
+  // Synthetic fixture links: one consignment, so quantities agree across
+  // documents and the AWB mirrors the BOL weight until errors are injected.
+  const awbWeight = bolWeight;
   const loading = pick(rng, PORTS);
   let discharge: string = pick(rng, PORTS);
   if (discharge === loading) discharge = "SANTOS";
@@ -115,7 +151,25 @@ export function generateForm(formId: string, seed: number, rng: Rng): SyntheticF
     origin,
     destination,
     pieces,
-    weightKg: pieces * int(rng, 8, 25),
+    weightKg: awbWeight,
+  };
+
+  const unitPrice = int(rng, 12, 85);
+  const invoice: CommercialInvoice = {
+    kind: "invoice",
+    invoiceNumber: `INV-${digitString(rng, 8)}`,
+    bolRef: bolNumber,
+    totalQty: cartons,
+    totalAmount: `${(cartons * unitPrice).toFixed(2)}`,
+    currency: "USD",
+  };
+
+  const packing: PackingList = {
+    kind: "packing",
+    packingNumber: `PKG-${digitString(rng, 8)}`,
+    bolRef: bolNumber,
+    totalQty: cartons,
+    lines: int(rng, 1, 8),
   };
 
   const pod: Pod = {
@@ -128,5 +182,12 @@ export function generateForm(formId: string, seed: number, rng: Rng): SyntheticF
     date: `2026-10-${String(int(rng, 1, 28)).padStart(2, "0")}`,
   };
 
-  return { formId, seed, bol, awb, pod };
+  const label: SsccLabel = {
+    kind: "label",
+    sscc: generateSscc(rng),
+    palletId: `PAL-${digitString(rng, 6)}`,
+    cartons,
+  };
+
+  return { formId, seed, bol, awb, invoice, packing, pod, label };
 }

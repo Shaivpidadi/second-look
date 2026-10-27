@@ -49,7 +49,10 @@ async function main(): Promise<void> {
     await writeFile(`${out}/${formId}.json`, JSON.stringify(generated, null, 2));
     await writeFile(`${out}/${formId}-bol.png`, images.bol);
     await writeFile(`${out}/${formId}-awb.png`, images.awb);
+    await writeFile(`${out}/${formId}-invoice.png`, images.invoice);
+    await writeFile(`${out}/${formId}-packing.png`, images.packing);
     await writeFile(`${out}/${formId}-pod.png`, images.pod);
+    await writeFile(`${out}/${formId}-label.png`, images.label);
   }
   console.log(`wrote ${count} forms to ${out}`);
 }

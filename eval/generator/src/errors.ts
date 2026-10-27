@@ -5,7 +5,10 @@ export type ErrorKind =
   | "transposition"
   | "dropped_digit"
   | "swapped_fields"
-  | "short_count";
+  | "short_count"
+  | "qty_gap"
+  | "weight_gap"
+  | "sscc_transposition";
 
 export interface InjectedError {
   kind: ErrorKind;
@@ -29,8 +32,13 @@ export function paperValues(form: SyntheticForm): TypedValues {
     "awb.destination": form.awb.destination,
     "awb.pieces": String(form.awb.pieces),
     "awb.weightKg": String(form.awb.weightKg),
+    "invoice.invoiceNumber": form.invoice.invoiceNumber,
+    "invoice.totalQty": String(form.invoice.totalQty),
+    "packing.packingNumber": form.packing.packingNumber,
+    "packing.totalQty": String(form.packing.totalQty),
     "pod.receivedCartons": String(form.pod.receivedCartons),
     "pod.exceptionNote": form.pod.exceptionNote ?? "",
+    "label.sscc": form.label.sscc,
   };
 }
 
@@ -47,8 +55,9 @@ function dropChar(value: string, rng: Rng): string {
 }
 
 /**
- * Apply one error kind. Typo kinds change the typed values; short_count
- * changes the paper POD itself (a genuine receiving discrepancy).
+ * Apply one error kind. Typo kinds change the typed values only; short_count,
+ * qty_gap, and weight_gap change the paper docs themselves (genuine
+ * cross-document discrepancies the worker typed faithfully).
  */
 export function applyError(
   form: SyntheticForm,
@@ -83,6 +92,26 @@ export function applyError(
       typed["pod.receivedCartons"] = value;
       return { kind, fieldId: "pod.receivedCartons", paperValue: paper, typedValue: value };
     }
+    case "qty_gap": {
+      const paper = String(form.invoice.totalQty);
+      form.invoice.totalQty = form.packing.totalQty - int(rng, 1, 4);
+      const value = String(form.invoice.totalQty);
+      typed["invoice.totalQty"] = value;
+      return { kind, fieldId: "invoice.totalQty", paperValue: paper, typedValue: value };
+    }
+    case "weight_gap": {
+      const paper = String(form.awb.weightKg);
+      form.awb.weightKg = form.bol.weightKg + int(rng, 50, 400);
+      const value = String(form.awb.weightKg);
+      typed["awb.weightKg"] = value;
+      return { kind, fieldId: "awb.weightKg", paperValue: paper, typedValue: value };
+    }
+    case "sscc_transposition": {
+      const paper = form.label.sscc;
+      const value = swapAdjacent(paper, rng);
+      typed["label.sscc"] = value;
+      return { kind, fieldId: "label.sscc", paperValue: paper, typedValue: value };
+    }
   }
 }
 
@@ -91,14 +120,26 @@ const KINDS: ErrorKind[] = [
   "dropped_digit",
   "swapped_fields",
   "short_count",
+  "qty_gap",
+  "weight_gap",
+  "sscc_transposition",
 ];
 
-/** Inject 1-2 seeded errors into a form; mutates form and typed. */
+/** Whether any injected error is a genuine paper discrepancy (not a typo). */
+export function isPaperError(kind: ErrorKind): boolean {
+  return kind === "short_count" || kind === "qty_gap" || kind === "weight_gap";
+}
+
+/**
+ * Inject 0-2 seeded errors into a form; mutates form and typed.
+ * About a quarter of forms stay clean so eval can measure precision.
+ */
 export function injectErrors(
   form: SyntheticForm,
   typed: TypedValues,
   rng: Rng,
 ): InjectedError[] {
+  if (rng() < 0.25) return [];
   const count = 1 + Math.floor(rng() * 2);
   const kinds = [...KINDS];
   const errors: InjectedError[] = [];
