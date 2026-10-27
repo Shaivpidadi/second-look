@@ -277,6 +277,18 @@ describe("runClipFrames", () => {
     assert.deepEqual(stamps, [expectedFirst === 0 ? 0 : 0.5, expectedFirst === 0 ? 0.5 : 0]);
   });
 
+  it("formats demo beats as timestamped lines", async () => {
+    const { formatBeat, DEMO_SCENARIOS } = await import("../clips/demo.ts");
+    assert.equal(formatBeat({ at: "00:03", line: "verdict: BLOCKED" }), "[00:03] verdict: BLOCKED");
+    assert.deepEqual(
+      DEMO_SCENARIOS.map((s) => [s.clip, s.expect]),
+      [
+        ["clip-awb.mp4", "blocked"],
+        ["clip-pod.mp4", "mismatch"],
+      ],
+    );
+  });
+
   it("flags a paper invoice/packing quantity gap as mismatch", async () => {
     const { form } = buildForm("clip-test", 42);
     form.invoice.totalQty = form.packing.totalQty - 2;
