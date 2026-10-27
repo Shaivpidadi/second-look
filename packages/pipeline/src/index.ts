@@ -15,6 +15,7 @@ export {
   type DraftClaimOptions,
 } from "./claim.ts";
 export { checkCrossDoc, type CrossDocOptions } from "./crossdoc.ts";
+export { exportAuditCsv, exportAuditMarkdown } from "./export.ts";
 export {
   createGlimmerAdapter,
   isFreeTextField,
