@@ -103,18 +103,36 @@ pnpm --filter @second-look/eval eval -- --arms check-digit-only,single-model,tie
 (calls, retries, tokens in/out). Pricing is unverified, so cost reads
 $0 and tokens are the spend signal. Every HTTP attempt counts against
 the `SECOND_LOOK_CALL_BUDGET` cap (default 300); 429/5xx retry with
-backoff. Latest 100-form numbers (Oct 27, 184 live calls, 0 retries):
+backoff. Costs are real dollars at official Standard rates (Spark
+$1.25/$4.25 per 1M in/out, $0.15 cached; SAM $2.50/1K images).
 
-| arm | flagged | precision | recall | avg latency |
-| --- | ---: | ---: | ---: | ---: |
-| check-digit-only | 48 | 100.0% | 60.0% | 0.0ms |
-| single-model (stubbed) | 79 | 100.0% | 98.8% | 0.0ms |
-| tiered (stubbed) | 79 | 100.0% | 98.8% | 0.0ms |
-| single-model-real | 79 | 100.0% | 98.8% | 1897.4ms |
-| tiered-real | 79 | 100.0% | 98.8% | 3117.7ms |
+```sh
+pnpm --filter @second-look/generator generate -- --seed 5001 --count 40 --split hard
+pnpm --filter @second-look/eval eval -- --corpus corpus-hard
+```
 
-See STATUS.md for the smoke-test shapes, per-call tokens, real clip
-E2E latency, and batch spend.
+The hard split (near-miss check digits, diff-free cross-doc gaps,
+notes on every form, blur/glare/skew images) drops check-digit-only
+recall to 39.4% while diff-aware arms hold 100%. Latest numbers:
+
+| arm | split | flagged | precision | recall | avg latency | cost |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| check-digit-only | std 100 | 48 | 100.0% | 60.0% | 0.0ms | $0.0000 |
+| single-model (stubbed) | std 100 | 79 | 100.0% | 98.8% | 0.0ms | $0.2500 |
+| tiered (stubbed) | std 100 | 79 | 100.0% | 98.8% | 0.0ms | $0.2100 |
+| single-model-real | std 100 | 79 | 100.0% | 98.8% | 1897.4ms | † |
+| tiered-real | std 100 | 79 | 100.0% | 98.8% | 3117.7ms | † |
+| check-digit-only | hard 40 | 13 | 100.0% | 39.4% | 0.0ms | $0.0000 |
+| single-model (stubbed) | hard 40 | 33 | 100.0% | 100.0% | 0.0ms | $0.1000 |
+| tiered (stubbed) | hard 40 | 33 | 100.0% | 100.0% | 0.0ms | $0.1000 |
+| single-model-real | hard 40 | 33 | 100.0% | 100.0% | 1848.5ms | $0.0855 |
+| tiered-real | hard 40 | 33 | 100.0% | 100.0% | 4438.4ms | $0.1276 |
+
+† ~$0.46 combined upper bound for both standard real arms,
+re-priced from batch-6 token totals (82.6K in / 84.8K out; per-arm
+and cache splits unrecorded, so no per-arm figure). Hard costs are
+exact per-response prices. See STATUS.md for shapes, p50/p95 clip
+latency, and batch spend.
 
 ## Run the clip path
 
@@ -128,8 +146,11 @@ card + tilted page with blur and handheld jitter) with JSON sidecars
 carrying the documented ground truth. Both clips open with a
 SYNTHETIC PLACEHOLDER card; real POV clips are a human task.
 
-`clips:e2e` samples each clip at 2 fps and runs every frame through the
-same crop -> validators -> Glimmer -> Spark path live glasses would use:
+`clips:e2e` samples each clip at 2 fps, picks up to 3 keyframes
+(sharpness + change detection), and streams one partial verdict per
+keyframe through the same crop -> validators -> Glimmer -> Spark path
+live glasses would use. Crop and verdict caches are shared across the
+run, so repeat frames cost nothing:
 
 - swapped AWB digit -> block + fix
 - bad check digit with models off -> still blocks (validators alone)
@@ -165,14 +186,16 @@ pnpm -r typecheck
 - Spark: REAL via `muse-spark-1.3` on the Responses API (verified
   request/response shapes, `max_output_tokens`, minimal reasoning
   effort). `SECOND_LOOK_MODELS=real` plus a key selects it; otherwise
-  the deterministic stub serves. Pricing is unverified, so live cost
-  reads $0 and runs report tokens instead.
-- SAM: STUB retained. `sam-3.1` answers HTTP 200 via `/v1/responses`
-  but returns empty text with no boxes, masks, or annotations, and is
-  rejected on `/v1/chat/completions` ("Use /v1/responses"); no usable
-  box shape is verified, so real mode keeps `StubSamAdapter` (generator
-  ground-truth boxes, centered document box fallback). `RealSamAdapter`
-  stays ready for when a mask/box shape is confirmed.
+  the deterministic stub serves. Costs price each response at
+  official Standard rates.
+- SAM: direct `sam-3.1` PARKED. It answers HTTP 200 via
+  `/v1/responses` but returns empty text for document concepts even
+  with the documented bare-noun-phrase request (5 probes), and is
+  rejected on `/v1/chat/completions` ("Use /v1/responses").
+  `RealSamAdapter` sends the documented shape and parses the token
+  grammar for when it fires; meanwhile real mode crops via
+  `SparkBoxAdapter` (Spark JSON boxes, same `SamAdapter` interface),
+  and the stub (generator boxes, centered fallback) covers offline.
 - Glimmer: STUB. `RealGlimmerAdapter` needs local weights, which go
   only under `/Volumes/Crucial X9/second-look-models`, never the
   internal disk. No weights are downloaded by any script.

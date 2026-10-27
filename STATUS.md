@@ -1,149 +1,134 @@
-# Status — Real-model batch done (Oct 27)
+# Status — Batch 7 done: latency, Spark-box crops, hard split (Oct 27)
 
-## Smoke test (verified shapes, key redacted)
+## Latency: keyframes, caches, streaming, output cap
 
-Key loads from `.env` (`MODEL_API_KEY`, alias `META_API_KEY`); never
-printed, logged, or committed. 6 smoke calls + 5 debug probes, all small.
+The clip path now runs verdicts on sampled keyframes only (3 max:
+sharpness via Laplacian variance plus dhash change detection over
+pure-TS PNG decoding), caches extractions by frame hash
+(`CropCache`) and escalations by readings hash (`VerdictCache`, with
+changed-fields-only resends on repeat disagreements), streams one
+partial verdict per keyframe (`runClipFramesStream` + E2E partial
+log), and caps clip-path Spark output at 768 tokens. E2E shares both
+caches across checks, so the claim check reuses the qty-gap check's
+crops and escalation with zero new calls.
 
-- Spark `muse-spark-1.3` via `POST /v1/responses`: works, no fallback
-  needed. Vision blocks `{type: "input_text"}` / `{type: "input_image",
-  image_url: dataUrl}` accepted. Read the generator AWB image correctly
-  (`17479271345`, matches ground truth). Latency 4.9–9.1s per call.
-  Usage with one 14 KiB PNG: ~1827 in / ~127 out.
-- Token cap name is `max_output_tokens`. Reasoning defaults to `high`
-  and eats small caps (`incomplete`, reasoning-only output at cap 64).
-  `reasoning: {effort: "low"}` still burns the full 1024 on long
-  prompts (1022 reasoning tokens, no answer); `{effort: "minimal"}` is
-  accepted and answers fit: trivial prompt 70 out (55 reasoning),
-  slimmed judge prompt 340 out (239 reasoning). `temperature: 0`
-  accepted. Long check-digit-math rubrics explode hidden reasoning, so
-  the judge rubric sticks to paper/typed diffs + cross-doc gaps (every
-  injected error kind shows there).
-- SAM `sam-3.1` via `POST /v1/responses`: HTTP 200 `completed` in
-  3.6–5.5s, `images_processed: 1`, all token counts 0 — but the message
-  holds EMPTY text with no boxes, masks, or annotations (two prompt
-  variants tried). No `404 model_not_found`: the model is available to
-  this key, its usable output shape is not. Via
-  `/v1/chat/completions`: HTTP 404, `The model sam-3.1 is not
-  available on this endpoint. Use /v1/responses.` Stub retained.
-- `GET /v1/models` (200) lists `muse-spark-1.3`, `muse-spark-1.2`,
-  `muse-spark-1.1`, `sam-3.1`, plus wonder/voice/image ids. No
-  `muse-spark-1.3` 404, so the 1.1 fallback was never exercised.
-
-Verified Spark request:
-
-```json
-POST {base}/responses
-{"model": "muse-spark-1.3",
- "input": [{"role": "user", "content": [
-   {"type": "input_text", "text": "..."},
-   {"type": "input_image", "image_url": "data:image/png;base64,..."}]}],
- "max_output_tokens": 1024,
- "reasoning": {"effort": "minimal"}, "temperature": 0}
-```
-
-Verified response envelope: `{object: "response", status:
-"completed"|"incomplete", output: [{type: "reasoning", ...},
-{type: "message", content: [{type: "output_text", text}]}],
-usage: {input_tokens, output_tokens, total_tokens},
-incomplete_details: {reason: "max_output_tokens"}|null}`.
-
-## What works
-
-- `RealSparkAdapter` matches the verified shapes: message-style input
-  with up to 1 crop image, `max_output_tokens`, minimal reasoning,
-  temperature 0, shared retry transport. Replies follow a JSON contract
-  (`explanation`, `flagged`, `failures[]`, `fixes[]` with paper values
-  as corrections); raw-text and empty fallbacks stay. Reports token
-  usage; `costUsd` stays 0 because pricing is unverified.
-- `RealSamAdapter` routes through the shared transport with defensive
-  box parsing; on the verified empty envelope it yields zero crops.
-  Ready for real boxes once a mask/box shape is confirmed.
-- Transport (`packages/pipeline/src/http.ts`): retry with exponential
-  backoff for 429/5xx (3 retries, honors Retry-After), hard
-  `SECOND_LOOK_CALL_BUDGET` cap (default 300, counts every attempt),
-  per-process call/token stats printed by the CLIs.
-- `.env` loads at runtime via `loadDotEnv()` (allowlisted vars only,
-  never overrides, never prints). Library code reads `process.env`, so
-  tests stay hermetic and offline.
-- Mode selection: `SECOND_LOOK_MODELS=real` + key → real Spark, stub
-  SAM (empty output, see above), stub Glimmer (no weights). Every
-  adapter reports its own `name` for real-vs-stub labelling.
-- Real eval arms (opt-in via `--arms`, never in the default set):
-  `single-model-real` judges each form from one live Spark JSON reply;
-  `tiered-real` runs the deterministic tiered pipeline with live Spark
-  escalation. Runner adds `--limit N` pilots and a `real model calls`
-  line. Clip E2E adds `--models stub|real`.
-
-## Eval numbers (100 forms, real vs stub)
+Real clip E2E per-check latency, 3 runs (p50/p95, nearest-rank, n=3):
 
 ```
-| arm                  | forms | flagged | precision | recall | avg latency | cost    |
-| check-digit-only     | 100   | 48      | 100.0%    | 60.0%  | 0.0ms       | $0.0000 |
-| single-model (stub)  | 100   | 79      | 100.0%    | 98.8%  | 0.0ms       | $0.5000 |
-| tiered (stub)        | 100   | 79      | 100.0%    | 98.8%  | 0.0ms       | $0.4200 |
-| single-model-real    | 100   | 79      | 100.0%    | 98.8%  | 1897.4ms    | $0.0000 |
-| tiered-real          | 100   | 79      | 100.0%    | 98.8%  | 3117.7ms    | $0.0000 |
-real model calls: 184 (retries 0, tokens in/out 82608/84812)
+| check                    | p50 total | p95 total | p50 first | p95 first |
+| awb-swap -> block + fix  | 17191ms   | 25874ms   | 9941ms    | 10772ms   |
+| models-off -> blocks     | 122ms     | 124ms     | 122ms     | 124ms     |
+| qty-gap -> flag          | 8779ms    | 18318ms   | 4086ms    | 7955ms    |
+| claim draft (cached)     | 359ms     | 362ms     | 208ms     | 211ms     |
 ```
 
-80/100 forms carry injected errors. Both real arms match the stub
-verdicts exactly: `single-model-real` judged all 100 from live model
-JSON (100.0% / 98.8%, one no-op injection missed, same as stubs);
-`tiered-real` verdicts are validator-deterministic by design, so its
-realness is live latency (~3.1s avg, 84 escalations), tokens, and
-explanations. Real-arm cost reads $0: pricing unverified, tokens are
-the spend signal (~450 in / ~450 out per call). 10-form pilot first:
-both real arms 100.0% / 100.0%, 17 calls, 7672/7580 tokens.
+Was 74-85s per escalating check at 45 calls/run; now 9-26s at
+8 calls/run (3 keyframes of 15 scanned, 2 spark-cache hits per
+escalating check, ~$0.02/run). First verdicts still miss <5s
+(4.1-9.9s p50; one qty-gap first verdict hit 3975ms). Next lever:
+overlap the crop and escalation calls or verdict on a single
+keyframe. Functionally 8/8 runs pass checks 2-4; check 1 passed 7/8
+(run 1 proposed a wrong fix once — live-model nondeterminism).
 
-## Clip E2E with real adapters (`--models real`)
+## SAM: official docs, 5 empty probes, Spark-box fallback
 
-Functionally 4/4 PASS with live Spark (fix proposes the paper AWB,
-qty gap flags, template claim drafts, models-off still blocks), but
-per-check latency misses <5s: 74.6s / 85.4s / 80.3s on the three
-escalating checks (15 frames × ~5s Spark each), 125ms models-off.
-45 calls, 0 retries, 71790/18542 tokens (frames ride along as images).
-The <5s live loop needs verdicts on sampled frames (one cloud call per
-verdict ≈ 5s, borderline) with caching — not a cloud call per frame.
-Default stub E2E stays 4/4 green at ~90ms/check.
+Meta's official SAM docs (dev.meta.ai/docs/sam/segmenting,
+reading-segmentation) say the concept prompt must be a bare noun
+phrase ("glasses") in `input_text` — instructions and questions
+"often return nothing" — with a `type: "message"` item, `input_image`
+or `input_video` media, and streamed or plain responses carrying
+`<Nf>id<|box;x1;y1;x2;y2;w;h|><|mask;...|>` token-grammar lines
+(inclusive corners, one line per frame, empty text = zero matches).
+`RealSamAdapter` now sends exactly that shape and parses the grammar.
+
+5 probes, all HTTP 200 `completed` with empty text: "shipping
+document", "document", "paper" on the AWB page, streamed "document",
+and "barcode label" on the label page. Per the docs that means zero
+matches, so `sam-3.1` does not fire on these document concepts.
+Fallback, stated plainly: real mode crops via `SparkBoxAdapter`
+(same `SamAdapter` interface, one concept per request), which asks
+`muse-spark-1.3` for 0-1000 JSON boxes. Real E2E runs on live boxes;
+direct SAM stays parked until a matching concept or shape is found.
+
+## Eval honesty: hard split + official pricing
+
+The standard corpus is too easy for diff-aware arms (98.8-100%).
+New hard split, 40 forms (`generate --split hard` into
+`eval/corpus-hard/`): near-miss check-digit swaps that still validate
+(check-digit-blind), cross-doc-only gaps with no paper/typed diffs,
+handwritten/benign POD notes on every form, and rotating
+blur/glare/skew image degradations. Both splits, stub arms:
+
+```
+| arm (standard 100)       | flagged | precision | recall |
+| check-digit-only         | 48      | 100.0%    | 60.0%  |
+| single-model (stubbed)   | 79      | 100.0%    | 98.8%  |
+| tiered (stubbed)         | 79      | 100.0%    | 98.8%  |
+| arm (hard 40)            | flagged | precision | recall |
+| check-digit-only         | 13      | 100.0%    | 39.4%  |
+| single-model (stubbed)   | 33      | 100.0%    | 100.0% |
+| tiered (stubbed)         | 33      | 100.0%    | 100.0% |
+```
+
+check-digit-only recall collapses to 39.4% on hard, as designed.
+Text-judging real arms still ace hard (below) — expected, since
+near-miss/cross-doc-only keep the same text signal; the degradations
+bite only a vision-judging arm, which is future work (1 call of
+budget left, so not this batch).
+
+Costs are now real dollars at official Standard rates
+(dev.meta.ai/docs/pricing-rate-limits): Spark $1.25/$4.25 per 1M
+in/out, $0.15 cached input (from `cached_tokens`); SAM $2.50/1K
+images, $0.20/1K video frames. Stub estimate updated to the measured
+mean, $0.0025/call. Hard-split real arms (80 calls, 0 retries,
+35.9K/39.9K tokens):
+
+```
+| single-model-real | 40 | 33 | 100.0% | 100.0% | 1848.5ms | $0.0855 |
+| tiered-real       | 40 | 33 | 100.0% | 100.0% | 4438.4ms | $0.1276 |
+```
+
+tiered-real is slower per form here because every hard form carries
+a note, so all 40 escalate. Standard-split real costs were not
+re-run (budget); batch-6 token totals re-price to ~$0.46 upper bound
+(82.6K in / 84.8K out, cache split unrecorded then).
 
 ## Batch spend
 
-~259 API calls total, under the ~300 cap: 11 smoke/debug probes,
-2 failed pilot calls (output-cap `incomplete`s), 17 pilot, 184 full
-eval, 45 clip E2E. ~172K in / ~111K out tokens on metered runs.
-Pricing unverified, so $ cost is unknown. No 429/5xx seen (0 retries).
+149/150 real API calls, 0 retries: 5 SAM probes, 64 clip E2E (8
+runs x 8 calls), 80 hard-split eval. ~103K in / ~57K out tokens,
+~$0.35 total (E2E ~$0.02/run, hard eval $0.2131). SAM probes bill
+$0.0025/image each with zero token usage.
 
 ## Test results
 
-- `pnpm -r test`: 179 pass, 0 fail — validators 22, pipeline 85, web
-  24, generator 17, eval 31 (incl. retry/budget/dotenv/mode/real-arm
-  tests, all on mock fetch; nothing hits the network).
+- `pnpm -r test`: 224 pass, 0 fail — validators 22, pipeline 114,
+  web 24, generator 28, eval 36 (keyframes, caches, token grammar,
+  spark-box, pricing, hard split, all mock/offline).
 - `pnpm -r typecheck`: pass (5 projects).
-- Stub clip E2E: 4/4 PASS within <5s (rerun after the refactor).
-- Real clip E2E: 4/4 checks PASS, latency gate red (see above; the gate
-  is doing its job, not a broken test).
+- Stub clip E2E: 4/4 PASS within <5s (3 keyframes, partials + cache
+  hits logged).
+- Real clip E2E: checks pass (check-1 fix 7/8), latency gate red —
+  the gate measures, not breaks.
 
 ## Skipped (need a human)
 
-- SAM `sam-3.1` box/mask output shape: the API returns empty text via
-  `/v1/responses`. Needs provider docs or a support channel; until
-  then the stub localizes crops.
-- Spark/SAM pricing: verify $/1K tokens to turn token counts into the
-  eval cost column.
-- Glasses developer mode + pairing, Xcode signing + physical-device
-  trust prompts, recording real POV clips (E2E clips still labelled
-  synthetic placeholders).
+- SAM `sam-3.1` still yields no boxes for document concepts despite
+  the documented request shape; needs a matching concept, provider
+  docs deep-dive, or support channel. Spark boxes cover crops meanwhile.
+- <5s live loop: needs the single-keyframe fast path and/or
+  overlapped crop+escalation calls (first verdicts at 4-10s now).
+- Vision-judging arm over degraded hard images (text arms cannot see
+  blur/glare/skew).
+- Glasses developer mode + pairing, Xcode signing + device trust,
+  recording real POV clips (E2E clips still synthetic placeholders).
 - Glimmer local runner spike (weights only under
   `/Volumes/Crucial X9/second-look-models`, never the internal disk).
-- Live-server smoke (SSE push, submit, claims): unchanged, sandbox
-  blocks listening sockets; rerun `/tmp/sl-smoke.py` against a
-  networked `pnpm start`.
+- Live-server smoke: unchanged, sandbox blocks listening sockets.
 
 ## Next steps (from PLAN.md)
 
-- Cut live-loop latency: verdict on one sampled frame per second with
-  crop/verdict caching; re-measure real per-verdict latency vs <5s.
-- Resolve the SAM output shape or pivot to Spark grounding for crops.
+- Single-keyframe verdict + overlapped calls; re-measure vs <5s.
+- Vision-judging arm on the hard split; fold degradations into scoring.
 - Record backup demo clips; dry-run the demo script.
 - Shoot + edit the 3-min video; overlay the real eval numbers above.
