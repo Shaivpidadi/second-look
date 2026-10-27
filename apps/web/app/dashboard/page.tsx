@@ -1,6 +1,39 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  Activity,
+  Ban,
+  CheckCircle2,
+  ChevronRight,
+  ClipboardList,
+  FileText,
+  LayoutDashboard,
+  ScrollText,
+  Search,
+  TriangleAlert,
+  X,
+} from "lucide-react";
+import { Wordmark } from "../../components/brand";
+import { Badge, type BadgeTone } from "../../components/ui/badge";
+import { Button } from "../../components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
+import { Input } from "../../components/ui/input";
+import { Select } from "../../components/ui/select";
+import { Separator } from "../../components/ui/separator";
+import { Skeleton } from "../../components/ui/skeleton";
+import { StatusDot } from "../../components/ui/status-dot";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeaderCell,
+  TableRow,
+} from "../../components/ui/table";
+import { formatCost, formatCount, formatLatency, formatTime } from "../../lib/format";
+import { cn } from "../../lib/cn";
 
 interface ModelCall {
   model: string;
@@ -32,6 +65,95 @@ interface ClaimDraft {
   body: string;
 }
 
+type View = "overview" | "checks" | "claims" | "audit" | "eval";
+
+const NAV: Array<{ view: View; label: string; icon: typeof LayoutDashboard }> = [
+  { view: "overview", label: "Overview", icon: LayoutDashboard },
+  { view: "checks", label: "Checks", icon: ClipboardList },
+  { view: "claims", label: "Claims", icon: FileText },
+  { view: "audit", label: "Audit log", icon: ScrollText },
+  { view: "eval", label: "Eval", icon: Activity },
+];
+
+const EVAL_ROWS = [
+  { arm: "check-digit-only", split: "hard 40", precision: "100.0%", recall: "39.4%", latency: "0ms", cost: "$0" },
+  { arm: "single-model-real", split: "hard 40", precision: "100.0%", recall: "100.0%", latency: "1849ms", cost: "$0.086" },
+  { arm: "tiered-real", split: "hard 40", precision: "100.0%", recall: "100.0%", latency: "4438ms", cost: "$0.128" },
+  { arm: "vision-real", split: "hard 40", precision: "100.0%", recall: "100.0%", latency: "2857ms", cost: "$0.61" },
+  { arm: "tiered-real", split: "std 100", precision: "100.0%", recall: "98.8%", latency: "3118ms", cost: "†" },
+];
+
+function verdictTone(verdict: string): BadgeTone {
+  if (verdict === "clean") return "pass";
+  if (verdict === "mismatch") return "warn";
+  if (verdict === "blocked") return "block";
+  return "neutral";
+}
+
+function docType(fieldId: string): string {
+  const prefix = fieldId.split(".")[0] ?? "";
+  const names: Record<string, string> = {
+    awb: "AWB",
+    bol: "BOL",
+    label: "Label",
+    pod: "POD",
+    invoice: "Invoice",
+    packing: "Packing",
+  };
+  return names[prefix] ?? "—";
+}
+
+interface CheckRun {
+  ts: string;
+  entries: AuditEntry[];
+  verdict: string;
+  calls: ModelCall[];
+  latencyMs: number;
+  costUsd: number;
+}
+
+function groupRuns(entries: AuditEntry[]): CheckRun[] {
+  const groups = new Map<string, AuditEntry[]>();
+  for (const entry of entries) {
+    const list = groups.get(entry.ts) ?? [];
+    list.push(entry);
+    groups.set(entry.ts, list);
+  }
+  const rank = (verdict: string): number =>
+    verdict === "blocked" ? 2 : verdict === "mismatch" ? 1 : 0;
+  return [...groups.entries()]
+    .map(([ts, list]) => {
+      const calls = list.find((entry) => entry.modelCalls)?.modelCalls ?? [];
+      const worst = list.reduce((acc, entry) =>
+        rank(entry.verdict) > rank(acc) ? entry.verdict : acc,
+      list[0]?.verdict ?? "clean");
+      return {
+        ts,
+        entries: list,
+        verdict: worst,
+        calls,
+        latencyMs: calls.reduce((sum, call) => sum + call.latencyMs, 0),
+        costUsd: calls.reduce((sum, call) => sum + call.costUsd, 0),
+      };
+    })
+    .sort((a, b) => (a.ts < b.ts ? 1 : -1));
+}
+
+function modelLabel(run: CheckRun): string {
+  const spark = run.calls.find((call) => call.model === "spark");
+  if (spark) return `Spark · ${spark.adapter}`;
+  const glimmer = run.calls.find((call) => call.model === "glimmer");
+  if (glimmer) return `Glimmer · ${glimmer.adapter}`;
+  return "Validators";
+}
+
+function median(values: number[]): number {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0 ? (sorted[mid - 1]! + sorted[mid]!) / 2 : sorted[mid]!;
+}
+
 async function copyText(text: string): Promise<boolean> {
   try {
     await navigator.clipboard.writeText(text);
@@ -51,12 +173,6 @@ async function copyText(text: string): Promise<boolean> {
   }
 }
 
-const VERDICT_COLORS: Record<string, string> = {
-  clean: "#1a7f37",
-  mismatch: "#9a6700",
-  blocked: "#b00020",
-};
-
 export default function Dashboard() {
   const [sessionId, setSessionId] = useState("");
   const [sessions, setSessions] = useState<string[]>([]);
@@ -64,6 +180,10 @@ export default function Dashboard() {
   const [claims, setClaims] = useState<ClaimDraft[]>([]);
   const [copied, setCopied] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [view, setView] = useState<View>("overview");
+  const [query, setQuery] = useState("");
+  const [openCheck, setOpenCheck] = useState<string | null>(null);
 
   const loadSessions = useCallback(async () => {
     try {
@@ -90,24 +210,6 @@ export default function Dashboard() {
     }
   }, []);
 
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const preset = params.get("session") ?? "";
-    if (preset) setSessionId(preset);
-    loadSessions().then(() => {
-      if (!preset) {
-        fetch("/api/audit")
-          .then((res) => res.json())
-          .then((data: { sessions?: string[] }) => {
-            if (data.sessions && data.sessions.length > 0) {
-              setSessionId(data.sessions[0] as string);
-            }
-          })
-          .catch(() => {});
-      }
-    });
-  }, [loadSessions]);
-
   const loadClaims = useCallback(async (id: string) => {
     if (!id) {
       setClaims([]);
@@ -123,6 +225,27 @@ export default function Dashboard() {
   }, []);
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const preset = params.get("session") ?? "";
+    const check = params.get("check") ?? "";
+    if (preset) setSessionId(preset);
+    if (check) setOpenCheck(check);
+    loadSessions().then(() => {
+      if (!preset) {
+        fetch("/api/audit")
+          .then((res) => res.json())
+          .then((data: { sessions?: string[] }) => {
+            if (data.sessions && data.sessions.length > 0) {
+              setSessionId(data.sessions[0] as string);
+            }
+          })
+          .catch(() => {});
+      }
+      setLoading(false);
+    });
+  }, [loadSessions]);
+
+  useEffect(() => {
     loadEntries(sessionId);
     loadClaims(sessionId);
     if (!sessionId) return;
@@ -133,44 +256,37 @@ export default function Dashboard() {
     return () => clearInterval(timer);
   }, [sessionId, loadEntries, loadClaims]);
 
-  const latest = entries.length > 0 ? entries[entries.length - 1]! : null;
-  const counts = entries.reduce<Record<string, number>>((acc, entry) => {
-    acc[entry.verdict] = (acc[entry.verdict] ?? 0) + 1;
-    return acc;
-  }, {});
+  const runs = useMemo(() => groupRuns(entries), [entries]);
+  const queryText = query.trim().toLowerCase();
+  const visibleRuns = queryText
+    ? runs.filter((run) =>
+        [run.ts, run.verdict, modelLabel(run)]
+          .concat(run.entries.map((entry) => `${entry.fieldId} ${entry.typedValue ?? ""} ${entry.action}`))
+          .join(" ")
+          .toLowerCase()
+          .includes(queryText),
+      )
+    : runs;
+  const visibleEntries = queryText
+    ? entries.filter((entry) =>
+        `${entry.ts} ${entry.fieldId} ${entry.typedValue ?? ""} ${entry.verdict} ${entry.action}`
+          .toLowerCase()
+          .includes(queryText),
+      )
+    : entries;
 
-  // One submit writes several entries sharing a timestamp and one
-  // modelCalls array, so group by ts to recover per-run tiering.
-  const runs = new Map<string, ModelCall[]>();
-  for (const entry of entries) {
-    if (entry.modelCalls && !runs.has(entry.ts)) {
-      runs.set(entry.ts, entry.modelCalls);
-    }
-  }
-  const runCalls = [...runs.values()];
-  const latestCalls = runCalls.length > 0 ? runCalls[runCalls.length - 1]! : null;
-  const sparkCalls = runCalls.filter((calls) =>
-    calls.some((c) => c.model === "spark"),
-  ).length;
-  const totalCost = runCalls
-    .flat()
-    .reduce((sum, call) => sum + call.costUsd, 0);
+  const blocked = entries.filter((entry) => entry.verdict === "blocked").length;
+  const warned = entries.filter((entry) => entry.verdict === "mismatch").length;
+  const medianLatency = median(runs.map((run) => run.latencyMs));
+  const totalCost = runs.reduce((sum, run) => sum + run.costUsd, 0);
+  const openRun = openCheck ? runs.find((run) => run.ts === openCheck) ?? null : null;
 
-  function tieringLine(calls: ModelCall[]): string {
-    const glimmer = calls.find((c) => c.model === "glimmer");
-    const spark = calls.find((c) => c.model === "spark");
-    const cost = calls.reduce((sum, c) => sum + c.costUsd, 0).toFixed(4);
-    if (glimmer && !spark) {
-      return `Glimmer ${glimmer.outcome} (${glimmer.adapter}), no Spark call, $${cost}`;
-    }
-    return (
-      calls
-        .map(
-          (c) =>
-            `${c.model} ${c.outcome} (${c.adapter}, ${c.latencyMs.toFixed(1)}ms, $${c.costUsd.toFixed(4)})`,
-        )
-        .join(" → ") + ` · total $${cost}`
-    );
+  function selectCheck(ts: string | null) {
+    setOpenCheck(ts);
+    const url = new URL(window.location.href);
+    if (ts) url.searchParams.set("check", ts);
+    else url.searchParams.delete("check");
+    window.history.replaceState(null, "", url);
   }
 
   async function onCopy(index: number, body: string) {
@@ -180,187 +296,540 @@ export default function Dashboard() {
     }
   }
 
-  const cell: React.CSSProperties = {
-    border: "1px solid #ccc",
-    padding: "6px 10px",
-    textAlign: "left",
-    fontSize: 14,
-  };
+  const kpis = [
+    { label: "Checks run", value: formatCount(runs.length), icon: ClipboardList },
+    { label: "Blocked", value: formatCount(blocked), icon: Ban },
+    { label: "Warned", value: formatCount(warned), icon: TriangleAlert },
+    { label: "Median verdict latency", value: formatLatency(medianLatency), icon: Activity },
+    { label: "Model cost", value: formatCost(totalCost), icon: CheckCircle2 },
+  ];
 
   return (
-    <main style={{ maxWidth: 960, margin: "32px auto", padding: "0 16px" }}>
-      <h1>Verdicts &amp; audit trail</h1>
-      <p>
-        Live view of the append-only audit log. Pick a session to watch its
-        verdicts arrive as the form is submitted.
-      </p>
-
-      <div style={{ marginBottom: 16 }}>
-        <label htmlFor="session" style={{ marginRight: 8 }}>
-          Session
-        </label>
-        <input
-          id="session"
-          list="sessions"
-          value={sessionId}
-          onChange={(e) => setSessionId(e.target.value)}
-          placeholder="paste a session id"
-          autoComplete="off"
-          spellCheck={false}
-          style={{ padding: 8, fontSize: 14, width: 320, maxWidth: "100%" }}
-        />
-        <datalist id="sessions">
-          {sessions.map((id) => (
-            <option key={id} value={id} />
+    <div className="flex min-h-screen bg-void text-ink">
+      <aside className="hidden w-60 shrink-0 flex-col border-r border-line bg-panel/60 md:flex">
+        <div className="flex h-16 items-center px-5">
+          <Link href="/" aria-label="Second Look home">
+            <Wordmark />
+          </Link>
+        </div>
+        <nav className="flex-1 space-y-1 px-3" aria-label="Dashboard">
+          {NAV.map((item) => (
+            <button
+              key={item.view}
+              type="button"
+              onClick={() => setView(item.view)}
+              aria-current={view === item.view ? "page" : undefined}
+              className={cn(
+                "flex w-full cursor-pointer items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors duration-150 ease-out",
+                view === item.view
+                  ? "bg-white/[0.07] font-medium text-ink"
+                  : "text-ink-dim hover:bg-white/[0.04] hover:text-ink",
+              )}
+            >
+              <item.icon className="h-4 w-4" aria-hidden />
+              {item.label}
+              {item.view === "claims" && claims.length > 0 && (
+                <span className="ml-auto rounded-full bg-white/10 px-1.5 font-mono text-[11px] tabular">
+                  {claims.length}
+                </span>
+              )}
+            </button>
           ))}
-        </datalist>
-        <button
-          type="button"
-          onClick={() => {
-            loadSessions();
-            loadEntries(sessionId);
-            loadClaims(sessionId);
-          }}
-          style={{ marginLeft: 8, padding: "8px 12px", cursor: "pointer" }}
-        >
-          Refresh
-        </button>
+        </nav>
+        <div className="p-3">
+          <Button variant="secondary" size="sm" className="w-full" asChild>
+            <Link href="/form">Open receiving form</Link>
+          </Button>
+        </div>
+      </aside>
+
+      <div className="flex min-w-0 flex-1 flex-col">
+        <header className="flex h-16 shrink-0 items-center gap-4 border-b border-line bg-panel/60 px-6">
+          <div className="relative w-full max-w-sm">
+            <Search
+              className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-ink-faint"
+              aria-hidden
+            />
+            <Input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search checks, fields, actions…"
+              aria-label="Search checks"
+              className="pl-9"
+            />
+          </div>
+          <div className="ml-auto flex items-center gap-3">
+            <div className="w-56">
+              <Select
+                value={sessionId}
+                onChange={(e) => setSessionId(e.target.value)}
+                aria-label="Session"
+              >
+                <option value="">Select session…</option>
+                {sessions.map((id) => (
+                  <option key={id} value={id} className="font-mono">
+                    {id.slice(0, 8)}…{id.slice(-4)}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            <Badge tone="neutral" className="hidden font-mono sm:inline-flex">
+              env: hackathon
+            </Badge>
+          </div>
+        </header>
+
+        <main className="min-w-0 flex-1 px-6 py-8">
+          <div className="mx-auto max-w-5xl">
+            {error && (
+              <Card className="mb-6 border-block/40">
+                <CardContent className="text-sm text-block">{error}</CardContent>
+              </Card>
+            )}
+
+            {loading ? (
+              <div className="space-y-4" aria-label="Loading dashboard">
+                <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
+                  {Array.from({ length: 5 }, (_, i) => (
+                    <Skeleton key={i} className="h-24" />
+                  ))}
+                </div>
+                <Skeleton className="h-64" />
+              </div>
+            ) : (
+              <>
+                {view === "overview" && (
+                  <div className="space-y-6">
+                    <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
+                      {kpis.map((kpi) => (
+                        <Card key={kpi.label}>
+                          <CardContent className="py-4">
+                            <p className="flex items-center gap-1.5 text-[13px] text-ink-dim">
+                              <kpi.icon className="h-3.5 w-3.5" aria-hidden />
+                              {kpi.label}
+                            </p>
+                            <p className="mt-2 font-mono text-2xl font-semibold tracking-tight tabular">
+                              {kpi.value}
+                            </p>
+                          </CardContent>
+                        </Card>
+                      ))}
+                    </div>
+                    <Card>
+                      <CardHeader>
+                        <div className="flex items-center justify-between">
+                          <CardTitle>Recent checks</CardTitle>
+                          <Button size="sm" variant="ghost" onClick={() => setView("checks")}>
+                            View all <ChevronRight className="h-4 w-4" aria-hidden />
+                          </Button>
+                        </div>
+                      </CardHeader>
+                      <CardContent className="!px-2 !pt-0">
+                        <ChecksTable
+                          runs={visibleRuns.slice(0, 8)}
+                          empty="No checks yet — submit the receiving form to create some."
+                          onSelect={(ts) => selectCheck(ts)}
+                        />
+                      </CardContent>
+                    </Card>
+                  </div>
+                )}
+
+                {view === "checks" && (
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Checks</CardTitle>
+                    </CardHeader>
+                    <CardContent className="!px-2 !pt-0">
+                      <ChecksTable
+                        runs={visibleRuns}
+                        empty={
+                          queryText
+                            ? `No checks match "${query}".`
+                            : "No checks yet — submit the receiving form to create some."
+                        }
+                        onSelect={(ts) => selectCheck(ts)}
+                      />
+                    </CardContent>
+                  </Card>
+                )}
+
+                {view === "claims" && (
+                  <div className="space-y-4">
+                    {claims.length === 0 ? (
+                      <EmptyState
+                        icon={FileText}
+                        title="No claim drafts"
+                        body="Handwritten POD exceptions become damage-claim drafts here."
+                      />
+                    ) : (
+                      claims.map((claim, index) => (
+                        <article
+                          key={`${claim.bolRef}-${claim.awbRef}-${index}`}
+                          className="rounded-lg border border-line bg-panel"
+                        >
+                          <div className="flex flex-wrap items-center gap-2 border-b border-line px-5 py-3">
+                            <Badge tone="needs">Claim draft</Badge>
+                            <span className="font-mono text-xs text-ink-dim tabular">
+                              {claim.carrier || "Unknown carrier"} · BOL {claim.bolRef || "n/a"} ·
+                              AWB {claim.awbRef || "n/a"}
+                            </span>
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              className="ml-auto"
+                              onClick={() => onCopy(index, claim.body)}
+                            >
+                              {copied === index ? "Copied" : "Copy claim"}
+                            </Button>
+                          </div>
+                          <div className="mx-auto max-w-2xl px-5 py-8">
+                            <p className="text-lg font-semibold tracking-tight">
+                              Damage claim — {claim.carrier || "Unknown carrier"}
+                            </p>
+                            <dl className="mt-4 grid grid-cols-2 gap-x-8 gap-y-2 text-sm">
+                              <dt className="text-ink-faint">BOL reference</dt>
+                              <dd className="font-mono tabular">{claim.bolRef || "n/a"}</dd>
+                              <dt className="text-ink-faint">AWB reference</dt>
+                              <dd className="font-mono tabular">{claim.awbRef || "n/a"}</dd>
+                              <dt className="text-ink-faint">POD exception</dt>
+                              <dd className="italic">“{claim.exceptionNote}”</dd>
+                              <dt className="text-ink-faint">Damaged quantity</dt>
+                              <dd className="font-mono tabular">
+                                {claim.damagedQty === null ? "unspecified" : claim.damagedQty}
+                              </dd>
+                              <dt className="text-ink-faint">Claimed amount</dt>
+                              <dd className="font-mono tabular">{claim.amount}</dd>
+                              <dt className="text-ink-faint">Source</dt>
+                              <dd className="font-mono tabular">{claim.source}</dd>
+                            </dl>
+                            <Separator className="my-5" />
+                            <pre className="rounded-md border border-line bg-sunken p-4 font-mono text-[13px] leading-relaxed whitespace-pre-wrap">
+                              {claim.body}
+                            </pre>
+                          </div>
+                        </article>
+                      ))
+                    )}
+                  </div>
+                )}
+
+                {view === "audit" && (
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Audit log</CardTitle>
+                    </CardHeader>
+                    <CardContent className="!px-2 !pt-0">
+                      {visibleEntries.length === 0 ? (
+                        <EmptyState
+                          icon={ScrollText}
+                          title="No audit entries"
+                          body={
+                            queryText
+                              ? `Nothing matches "${query}".`
+                              : "Submit the receiving form — every decision lands here."
+                          }
+                        />
+                      ) : (
+                        <Table>
+                          <TableHead>
+                            <tr>
+                              <TableHeaderCell>Time</TableHeaderCell>
+                              <TableHeaderCell>Field</TableHeaderCell>
+                              <TableHeaderCell>Typed value</TableHeaderCell>
+                              <TableHeaderCell>Verdict</TableHeaderCell>
+                              <TableHeaderCell>Action</TableHeaderCell>
+                            </tr>
+                          </TableHead>
+                          <TableBody>
+                            {visibleEntries.map((entry, i) => (
+                              <TableRow key={`${entry.ts}-${i}`}>
+                                <TableCell className="font-mono text-[13px] whitespace-nowrap tabular">
+                                  {formatTime(entry.ts)}
+                                </TableCell>
+                                <TableCell className="font-mono text-[13px]">
+                                  {entry.fieldId}
+                                </TableCell>
+                                <TableCell className="max-w-48 truncate font-mono text-[13px] tabular">
+                                  {entry.typedValue ?? "—"}
+                                </TableCell>
+                                <TableCell>
+                                  <Badge tone={verdictTone(entry.verdict)}>
+                                    {entry.verdict}
+                                  </Badge>
+                                </TableCell>
+                                <TableCell className="font-mono text-[13px]">
+                                  {entry.action}
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      )}
+                    </CardContent>
+                  </Card>
+                )}
+
+                {view === "eval" && (
+                  <Card>
+                    <CardHeader>
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <CardTitle>Eval report</CardTitle>
+                        <Badge tone="pass">Measured Oct 27 · 100 std + 40 hard</Badge>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="!px-2 !pt-0">
+                      <Table>
+                        <TableHead>
+                          <tr>
+                            <TableHeaderCell>Arm</TableHeaderCell>
+                            <TableHeaderCell>Split</TableHeaderCell>
+                            <TableHeaderCell>Precision</TableHeaderCell>
+                            <TableHeaderCell>Recall</TableHeaderCell>
+                            <TableHeaderCell>Latency</TableHeaderCell>
+                            <TableHeaderCell>Cost</TableHeaderCell>
+                          </tr>
+                        </TableHead>
+                        <TableBody>
+                          {EVAL_ROWS.map((row) => (
+                            <TableRow key={`${row.arm}-${row.split}`}>
+                              <TableCell className="font-mono text-[13px]">
+                                {row.arm}
+                              </TableCell>
+                              <TableCell className="text-ink-dim">{row.split}</TableCell>
+                              <TableCell className="font-mono tabular">{row.precision}</TableCell>
+                              <TableCell className="font-mono tabular">{row.recall}</TableCell>
+                              <TableCell className="font-mono tabular">{row.latency}</TableCell>
+                              <TableCell className="font-mono tabular">{row.cost}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </CardContent>
+                  </Card>
+                )}
+              </>
+            )}
+          </div>
+        </main>
       </div>
 
-      {error && <p style={{ color: "#b00020" }}>{error}</p>}
-
-      {latest ? (
-        <section
-          aria-live="polite"
-          style={{
-            marginBottom: 16,
-            padding: 16,
-            border: `2px solid ${VERDICT_COLORS[latest.verdict] ?? "#555"}`,
-            borderRadius: 4,
-          }}
-        >
-          <h2 style={{ margin: "0 0 8px" }}>
-            Latest verdict: {latest.verdict} ({latest.action})
-          </h2>
-          <p style={{ margin: 0, fontSize: 14 }}>
-            {entries.length} audit entries ·{" "}
-            {Object.entries(counts)
-              .map(([verdict, n]) => `${n} ${verdict}`)
-              .join(" · ")}
-          </p>
-        </section>
-      ) : (
-        <p>
-          {sessionId
-            ? "No audit entries for this session yet — submit the form to create some."
-            : "No session selected."}
-        </p>
+      {openRun && (
+        <CheckDrawer
+          run={openRun}
+          onClose={() => selectCheck(null)}
+        />
       )}
+    </div>
+  );
+}
 
-      {latestCalls && (
-        <section
-          style={{
-            marginBottom: 16,
-            padding: 16,
-            border: "1px solid #888",
-            borderRadius: 4,
-          }}
-        >
-          <h2 style={{ margin: "0 0 8px", fontSize: 18 }}>Model tier</h2>
-          <p style={{ margin: "0 0 4px", fontSize: 14 }}>
-            Latest run: {tieringLine(latestCalls)}
-          </p>
-          <p style={{ margin: 0, fontSize: 14 }}>
-            Session: {runCalls.length} runs · {sparkCalls} Spark escalations · $
-            {totalCost.toFixed(4)}
-          </p>
-        </section>
-      )}
-
-      {claims.length > 0 && (
-        <section style={{ marginBottom: 16 }}>
-          <h2 style={{ fontSize: 18 }}>Claim drafts ({claims.length})</h2>
-          {claims.map((claim, index) => (
-            <article
-              key={`${claim.bolRef}-${claim.awbRef}-${index}`}
-              style={{
-                marginBottom: 12,
-                padding: 16,
-                border: "1px solid #888",
-                borderRadius: 4,
+function ChecksTable({
+  runs,
+  empty,
+  onSelect,
+}: {
+  runs: CheckRun[];
+  empty: string;
+  onSelect: (ts: string) => void;
+}) {
+  if (runs.length === 0) {
+    return (
+      <EmptyState icon={ClipboardList} title="No checks" body={empty} />
+    );
+  }
+  return (
+    <Table>
+      <TableHead>
+        <tr>
+          <TableHeaderCell>Status</TableHeaderCell>
+          <TableHeaderCell>Doc</TableHeaderCell>
+          <TableHeaderCell>Reference</TableHeaderCell>
+          <TableHeaderCell>Model</TableHeaderCell>
+          <TableHeaderCell>Latency</TableHeaderCell>
+          <TableHeaderCell>Time</TableHeaderCell>
+        </tr>
+      </TableHead>
+      <TableBody>
+        {runs.map((run) => {
+          const first = run.entries[0];
+          return (
+            <TableRow
+              key={run.ts}
+              onClick={() => onSelect(run.ts)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  onSelect(run.ts);
+                }
               }}
+              tabIndex={0}
+              className="cursor-pointer hover:bg-white/[0.03]"
             >
-              <p style={{ margin: "0 0 8px", fontSize: 14 }}>
-                <strong>{claim.carrier || "Unknown carrier"}</strong> · BOL{" "}
-                {claim.bolRef || "n/a"} · AWB {claim.awbRef || "n/a"} ·{" "}
-                {claim.damagedQty === null
-                  ? "qty unspecified"
-                  : `${claim.damagedQty} damaged`}{" "}
-                · {claim.amount} · {claim.source}
-              </p>
-              <pre
-                style={{
-                  margin: "0 0 8px",
-                  padding: 12,
-                  background: "#f6f6f6",
-                  fontSize: 13,
-                  whiteSpace: "pre-wrap",
-                }}
-              >
-                {claim.body}
-              </pre>
-              <button
-                type="button"
-                onClick={() => onCopy(index, claim.body)}
-                style={{ padding: "8px 12px", cursor: "pointer" }}
-              >
-                {copied === index ? "Copied" : "Copy claim"}
-              </button>
-            </article>
-          ))}
-        </section>
-      )}
+              <TableCell>
+                <Badge tone={verdictTone(run.verdict)}>{run.verdict}</Badge>
+              </TableCell>
+              <TableCell className="text-ink-dim">
+                {first ? docType(first.fieldId) : "—"}
+              </TableCell>
+              <TableCell className="max-w-44 truncate font-mono text-[13px] tabular">
+                {first?.typedValue ?? first?.fieldId ?? "—"}
+              </TableCell>
+              <TableCell className="text-[13px] text-ink-dim">{modelLabel(run)}</TableCell>
+              <TableCell className="font-mono text-[13px] tabular">
+                {formatLatency(run.latencyMs)}
+              </TableCell>
+              <TableCell className="font-mono text-[13px] whitespace-nowrap tabular">
+                {formatTime(run.ts)}
+              </TableCell>
+            </TableRow>
+          );
+        })}
+      </TableBody>
+    </Table>
+  );
+}
 
-      {entries.length > 0 && (
-        <table style={{ borderCollapse: "collapse", width: "100%" }}>
-          <thead>
-            <tr>
-              {["Time", "Field", "Typed value", "Verdict", "Action"].map((h) => (
-                <th key={h} style={{ ...cell, background: "#f0f0f0" }}>
-                  {h}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {entries.map((entry, i) => (
-              <tr key={`${entry.ts}-${i}`}>
-                <td style={cell}>
-                  {entry.ts.slice(11, 19)}
-                </td>
-                <td style={cell}>
-                  <code>{entry.fieldId}</code>
-                </td>
-                <td style={cell}>
-                  <code>{entry.typedValue ?? "—"}</code>
-                </td>
-                <td
-                  style={{
-                    ...cell,
-                    color: VERDICT_COLORS[entry.verdict] ?? "#111",
-                    fontWeight: 600,
-                  }}
+function CheckDrawer({ run, onClose }: { run: CheckRun; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50" role="dialog" aria-modal="true" aria-label="Check detail">
+      <button
+        type="button"
+        aria-label="Close check detail"
+        onClick={onClose}
+        className="absolute inset-0 cursor-default bg-black/60"
+      />
+      <aside className="absolute top-0 right-0 flex h-full w-full max-w-md flex-col border-l border-line bg-panel">
+        <div className="flex items-center gap-3 border-b border-line px-5 py-4">
+          <Badge tone={verdictTone(run.verdict)}>{run.verdict}</Badge>
+          <span className="font-mono text-xs text-ink-faint tabular">{formatTime(run.ts)}</span>
+          <Button size="sm" variant="ghost" className="ml-auto !px-2" onClick={onClose}>
+            <X className="h-4 w-4" aria-hidden />
+          </Button>
+        </div>
+        <div className="slim-scroll flex-1 space-y-6 overflow-y-auto px-5 py-5">
+          <section>
+            <h3 className="text-[13px] font-semibold tracking-tight">Verdict reasoning</h3>
+            {run.calls.length === 0 ? (
+              <p className="mt-2 text-[13px] text-ink-dim">
+                Decided by deterministic validators — no model call.
+              </p>
+            ) : (
+              <ul className="mt-2 space-y-2">
+                {run.calls.map((call, i) => (
+                  <li
+                    key={`${call.model}-${i}`}
+                    className="flex items-center gap-2 rounded-md border border-line bg-sunken px-3 py-2 font-mono text-xs tabular"
+                  >
+                    <StatusDot
+                      tone={call.model === "spark" ? "warn" : call.model === "sam" ? "needs" : "idle"}
+                    />
+                    <span className="text-ink">
+                      {call.model} {call.outcome}
+                    </span>
+                    <span className="text-ink-faint">({call.adapter})</span>
+                    <span className="ml-auto text-ink-faint">
+                      {formatLatency(call.latencyMs)} · {formatCost(call.costUsd)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+          <section>
+            <h3 className="text-[13px] font-semibold tracking-tight">Extracted vs typed</h3>
+            <div className="mt-2 overflow-hidden rounded-md border border-line">
+              <Table>
+                <TableHead>
+                  <tr>
+                    <TableHeaderCell>Field</TableHeaderCell>
+                    <TableHeaderCell>Paper</TableHeaderCell>
+                    <TableHeaderCell>Typed</TableHeaderCell>
+                  </tr>
+                </TableHead>
+                <TableBody>
+                  {run.entries.map((entry, i) => {
+                    const differs =
+                      entry.paperValue !== null &&
+                      entry.typedValue !== null &&
+                      entry.paperValue !== entry.typedValue;
+                    return (
+                      <TableRow key={`${entry.fieldId}-${i}`}>
+                        <TableCell className="font-mono text-xs">{entry.fieldId}</TableCell>
+                        <TableCell className="font-mono text-xs tabular">
+                          {entry.paperValue ?? "—"}
+                        </TableCell>
+                        <TableCell
+                          className={cn(
+                            "font-mono text-xs tabular",
+                            differs && "text-warn",
+                          )}
+                        >
+                          {entry.typedValue ?? "—"}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          </section>
+          <section>
+            <h3 className="text-[13px] font-semibold tracking-tight">Crops</h3>
+            <p className="mt-2 rounded-md border border-dashed border-line bg-sunken p-3 text-[13px] text-ink-dim">
+              Frame crops are captured on the clip path, not on web submits —
+              this run judged typed values only.
+            </p>
+          </section>
+          <section>
+            <h3 className="text-[13px] font-semibold tracking-tight">Audit trail</h3>
+            <ul className="mt-2 space-y-1.5">
+              {run.entries.map((entry, i) => (
+                <li
+                  key={`${entry.ts}-${i}`}
+                  className="flex items-center gap-2 font-mono text-xs tabular"
                 >
-                  {entry.verdict}
-                </td>
-                <td style={cell}>
-                  <code>{entry.action}</code>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-    </main>
+                  <StatusDot
+                    tone={
+                      entry.verdict === "clean"
+                        ? "pass"
+                        : entry.verdict === "mismatch"
+                          ? "warn"
+                          : entry.verdict === "blocked"
+                            ? "block"
+                            : "idle"
+                    }
+                  />
+                  <span className="text-ink-faint">{formatTime(entry.ts)}</span>
+                  <span className="truncate text-ink-dim">
+                    {entry.fieldId} → {entry.action}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        </div>
+      </aside>
+    </div>
+  );
+}
+
+function EmptyState({
+  icon: Icon,
+  title,
+  body,
+}: {
+  icon: typeof FileText;
+  title: string;
+  body: string;
+}) {
+  return (
+    <div className="flex flex-col items-center px-6 py-12 text-center">
+      <span className="inline-flex h-11 w-11 items-center justify-center rounded-md border border-line bg-raised">
+        <Icon className="h-5 w-5 text-ink-faint" aria-hidden />
+      </span>
+      <p className="mt-4 text-sm font-semibold">{title}</p>
+      <p className="mt-1 max-w-sm text-[13px] text-ink-dim">{body}</p>
+    </div>
   );
 }

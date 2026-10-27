@@ -1,23 +1,73 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
+import {
+  ArrowRight,
+  CheckCircle2,
+  FileWarning,
+  Inbox,
+  OctagonX,
+  Radio,
+} from "lucide-react";
+import { Wordmark } from "../../components/brand";
+import { Badge } from "../../components/ui/badge";
+import { Button } from "../../components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../components/ui/card";
+import { FieldError, Input, Label } from "../../components/ui/input";
+import { Separator } from "../../components/ui/separator";
+import { Skeleton } from "../../components/ui/skeleton";
+import { StatusDot, type StatusTone } from "../../components/ui/status-dot";
+import { formatCost } from "../../lib/format";
+import { cn } from "../../lib/cn";
 import { LiveVerdictTracker, type LiveVerdictMessage } from "../../lib/live-verdict";
 
 interface Field {
   id: string;
   label: string;
+  mono?: boolean;
 }
 
-const FIELDS: Field[] = [
-  { id: "awb.awbNumber", label: "AWB number" },
-  { id: "bol.bolNumber", label: "BOL number" },
-  { id: "bol.carrier", label: "Carrier" },
-  { id: "bol.containerNumber", label: "Container number" },
-  { id: "label.sscc", label: "SSCC (pallet label)" },
-  { id: "bol.cartons", label: "Shipped cartons" },
-  { id: "pod.receivedCartons", label: "Received cartons" },
-  { id: "pod.exceptionNote", label: "POD exception note" },
+interface Section {
+  title: string;
+  hint: string;
+  fields: Field[];
+}
+
+const SECTIONS: Section[] = [
+  {
+    title: "Shipment",
+    hint: "Air and ocean references for this receipt.",
+    fields: [
+      { id: "awb.awbNumber", label: "AWB number", mono: true },
+      { id: "bol.bolNumber", label: "BOL number", mono: true },
+      { id: "bol.carrier", label: "Carrier" },
+    ],
+  },
+  {
+    title: "Identifiers",
+    hint: "Container and pallet marks, checked digit by digit.",
+    fields: [
+      { id: "bol.containerNumber", label: "Container number", mono: true },
+      { id: "label.sscc", label: "SSCC (pallet label)", mono: true },
+    ],
+  },
+  {
+    title: "Counts",
+    hint: "Shipped versus received cartons.",
+    fields: [
+      { id: "bol.cartons", label: "Shipped cartons", mono: true },
+      { id: "pod.receivedCartons", label: "Received cartons", mono: true },
+    ],
+  },
+  {
+    title: "Exception",
+    hint: "Handwritten POD notes become damage claims.",
+    fields: [{ id: "pod.exceptionNote", label: "POD exception note" }],
+  },
 ];
+
+const ALL_FIELDS = SECTIONS.flatMap((section) => section.fields);
 
 const PREFILL: Record<string, string> = {
   "awb.awbNumber": "02027342210",
@@ -62,6 +112,20 @@ interface SubmitResult {
   escalated?: boolean;
   modelCalls?: ModelCallInfo[];
   claim?: ClaimInfo | null;
+}
+
+function stateTone(state: string | undefined): StatusTone {
+  if (state === "clean") return "pass";
+  if (state === "mismatch") return "warn";
+  if (state === "blocked") return "block";
+  return "idle";
+}
+
+function stateBadge(state: string | undefined): React.ReactNode {
+  if (state === "clean") return <Badge tone="pass">Clean</Badge>;
+  if (state === "mismatch") return <Badge tone="warn">Mismatch</Badge>;
+  if (state === "blocked") return <Badge tone="block">Blocked</Badge>;
+  return <Badge tone="neutral">Idle</Badge>;
 }
 
 export default function ReceivingForm() {
@@ -142,146 +206,265 @@ export default function ReceivingForm() {
     }
   }
 
-  const inputStyle: React.CSSProperties = {
-    width: "100%",
-    padding: "8px",
-    fontSize: 16,
-    border: "1px solid #888",
-    borderRadius: 4,
-    boxSizing: "border-box",
-  };
+  const liveFailures = live?.decision === "BLOCK" ? live.failures : [];
+  const failedFields = new Map<string, Failure>();
+  for (const failure of [...liveFailures, ...(result?.failures ?? [])]) {
+    if (!failedFields.has(failure.fieldId)) failedFields.set(failure.fieldId, failure);
+  }
+  const blocked = live?.decision === "BLOCK";
+  const submitCost = (result?.modelCalls ?? []).reduce((sum, call) => sum + call.costUsd, 0);
 
   return (
-    <main style={{ maxWidth: 640, margin: "32px auto", padding: "0 16px" }}>
-      <h1>Warehouse receiving</h1>
-      <p>
-        Mock form. Every keystroke streams to the screen reader; submit runs the
-        check-digit gate.
-      </p>
-      <form onSubmit={onSubmit}>
-        {FIELDS.map((field) => (
-          <div key={field.id} style={{ marginBottom: 16 }}>
-            <label htmlFor={field.id} style={{ display: "block", marginBottom: 4 }}>
-              {field.label}{" "}
-              <span style={{ color: "#555", fontSize: 13 }}>{field.id}</span>
-            </label>
-            <input
-              id={field.id}
-              style={inputStyle}
-              value={values[field.id] ?? ""}
-              onChange={(e) => onChange(field.id, e.target.value)}
-              autoComplete="off"
-              spellCheck={false}
-            />
+    <div className="min-h-screen bg-void text-ink">
+      <header className="border-b border-line bg-panel/60">
+        <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
+          <Link href="/" aria-label="Second Look home">
+            <Wordmark />
+          </Link>
+          <div className="flex items-center gap-3">
+            <Badge tone="neutral" className="font-mono">
+              session {sessionId.slice(0, 8)}
+            </Badge>
+            <Button size="sm" variant="secondary" asChild>
+              <Link href={`/dashboard?session=${sessionId}`}>
+                Dashboard <ArrowRight className="h-4 w-4" aria-hidden />
+              </Link>
+            </Button>
           </div>
-        ))}
-        <button
-          type="submit"
-          disabled={submitting}
-          style={{ padding: "10px 24px", fontSize: 16, cursor: "pointer" }}
-        >
-          {submitting ? "Checking…" : "Submit receiving"}
-        </button>
-      </form>
+        </div>
+      </header>
 
-      <p style={{ marginTop: 16, fontSize: 14 }}>
-        Session <code>{sessionId.slice(0, 8)}</code> · {streamed} typed events
-        streamed ·{" "}
-        <a href={`/dashboard?session=${sessionId}`}>
-          watch this session on the dashboard
-        </a>
-      </p>
+      <main className="mx-auto max-w-6xl px-6 py-10">
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <p className="flex items-center gap-2 text-[13px] text-ink-dim">
+              <Inbox className="h-4 w-4" aria-hidden /> Inbound · Dock 3
+            </p>
+            <h1 className="mt-2 text-3xl font-semibold tracking-[-0.02em]">
+              Warehouse receiving
+            </h1>
+            <p className="mt-2 max-w-xl text-[15px] text-ink-dim">
+              Every keystroke streams to the screen reader; Second Look
+              verdicts each field against the paper as you type.
+            </p>
+          </div>
+          <div className="flex items-center gap-2 text-[13px] text-ink-dim">
+            <Radio className="h-4 w-4 text-pass" aria-hidden />
+            <span className="font-mono tabular">{streamed} typed events streamed</span>
+          </div>
+        </div>
 
-      {live && live.decision === "BLOCK" && (
-        <section
-          aria-live="polite"
-          style={{
-            marginTop: 16,
-            padding: 16,
-            border: "2px solid #9a6700",
-            borderRadius: 4,
-          }}
-        >
-          <h2 style={{ margin: "0 0 8px" }}>
-            Live: blocked as typed ({live.state ?? "mismatch"})
-          </h2>
-          <ul style={{ margin: 0, paddingLeft: 20 }}>
-            {live.failures.map((f) => (
-              <li key={`${f.fieldId}-${f.rule}`} style={{ marginBottom: 8 }}>
-                <strong>{f.fieldId}</strong> [{f.rule}]: {f.message}
-                {f.fix !== undefined && (
-                  <div style={{ marginTop: 4 }}>
-                    Proposed fix: <code>{f.fix}</code>{" "}
-                    <button
-                      type="button"
-                      onClick={() => applyFix(f.fieldId, f.fix as string)}
-                      style={{ cursor: "pointer" }}
-                    >
-                      Apply fix
-                    </button>
+        <div className="mt-8 grid items-start gap-6 lg:grid-cols-3">
+          <form onSubmit={onSubmit} className="space-y-6 lg:col-span-2">
+            {SECTIONS.map((section) => (
+              <Card key={section.title}>
+                <CardHeader>
+                  <CardTitle>{section.title}</CardTitle>
+                  <CardDescription>{section.hint}</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {section.fields.map((field) => {
+                    const failure = failedFields.get(field.id);
+                    return (
+                      <div key={field.id}>
+                        <Label htmlFor={field.id}>
+                          {field.label}{" "}
+                          <span className="font-mono text-xs text-ink-faint">{field.id}</span>
+                        </Label>
+                        <Input
+                          id={field.id}
+                          value={values[field.id] ?? ""}
+                          onChange={(e) => onChange(field.id, e.target.value)}
+                          autoComplete="off"
+                          spellCheck={false}
+                          invalid={failure !== undefined}
+                          aria-invalid={failure !== undefined}
+                          aria-describedby={failure ? `${field.id}-error` : undefined}
+                          className={cn(field.mono && "font-mono tabular")}
+                        />
+                        {failure && (
+                          <FieldError id={`${field.id}-error`}>
+                            {failure.rule}: {failure.message}
+                          </FieldError>
+                        )}
+                      </div>
+                    );
+                  })}
+                </CardContent>
+              </Card>
+            ))}
+
+            <div className="flex flex-wrap items-center gap-4">
+              <Button type="submit" size="lg" disabled={submitting || blocked}>
+                {submitting ? "Checking…" : "Submit receipt"}
+              </Button>
+              {blocked && !submitting && (
+                <p className="flex items-center gap-2 text-sm text-block">
+                  <OctagonX className="h-4 w-4" aria-hidden />
+                  Resolve the live block to submit.
+                </p>
+              )}
+            </div>
+          </form>
+
+          <aside className="space-y-4 lg:sticky lg:top-6">
+            <Card aria-live="polite">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <CardTitle>Live verdict</CardTitle>
+                  <StatusDot tone={stateTone(live?.state)} pulse={live === null} />
+                </div>
+                <CardDescription>Pushed over SSE as you type.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {live === null ? (
+                  <div className="space-y-2">
+                    <Skeleton className="h-6 w-24" />
+                    <Skeleton className="h-4 w-full" />
+                    <Skeleton className="h-4 w-2/3" />
+                  </div>
+                ) : (
+                  <div key={live.seq} className="animate-rise space-y-3">
+                    <div className="flex items-center gap-2">
+                      {stateBadge(live.state)}
+                      <span className="font-mono text-xs text-ink-faint tabular">
+                        seq {live.seq}
+                      </span>
+                    </div>
+                    {liveFailures.length === 0 ? (
+                      <p className="flex items-center gap-2 text-sm text-ink-dim">
+                        <CheckCircle2 className="h-4 w-4 text-pass" aria-hidden />
+                        All typed fields agree with the paper.
+                      </p>
+                    ) : (
+                      <ul className="space-y-3">
+                        {liveFailures.map((failure) => (
+                          <li
+                            key={`${failure.fieldId}-${failure.rule}`}
+                            className="rounded-md border border-line bg-sunken p-3"
+                          >
+                            <p className="font-mono text-xs text-ink tabular">
+                              {failure.fieldId}{" "}
+                              <span className="text-ink-faint">[{failure.rule}]</span>
+                            </p>
+                            <p className="mt-1 text-[13px] text-ink-dim">{failure.message}</p>
+                            {failure.fix !== undefined && (
+                              <div className="mt-2 flex flex-wrap items-center gap-2">
+                                <code className="rounded border border-line bg-void px-1.5 py-0.5 font-mono text-xs tabular">
+                                  {failure.fix}
+                                </code>
+                                <Button
+                                  size="sm"
+                                  variant="secondary"
+                                  onClick={() => applyFix(failure.fieldId, failure.fix as string)}
+                                >
+                                  Apply fix
+                                </Button>
+                              </div>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
                   </div>
                 )}
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
+              </CardContent>
+            </Card>
 
-      {result && (
-        <section
-          aria-live="polite"
-          style={{
-            marginTop: 16,
-            padding: 16,
-            border: `2px solid ${result.decision === "BLOCK" ? "#b00020" : "#1a7f37"}`,
-            borderRadius: 4,
-          }}
-        >
-          <h2 style={{ margin: "0 0 8px" }}>
-            {result.decision === "BLOCK" ? "Blocked" : "Accepted"} (
-            {result.verdict.state})
-          </h2>
-          {result.glimmer && (
-            <p style={{ margin: "0 0 8px", fontSize: 14 }}>
-              Glimmer {result.glimmer.outcome} ({result.glimmer.adapter}) ·{" "}
-              {result.escalated
-                ? `Spark escalation (${result.spark?.adapter ?? "?"})`
-                : "no Spark call"}{" "}
-              · ${(result.modelCalls ?? []).reduce((n, c) => n + c.costUsd, 0).toFixed(4)}
-            </p>
-          )}
-          {result.claim && (
-            <p style={{ margin: "0 0 8px", fontSize: 14 }}>
-              Claim draft: {result.claim.damagedQty ?? "?"} damaged ·{" "}
-              {result.claim.carrier} ·{" "}
-              <a href={`/dashboard?session=${sessionId}`}>view on dashboard</a>
-            </p>
-          )}
-          {result.failures.length === 0 ? (
-            <p style={{ margin: 0 }}>All checks passed.</p>
-          ) : (
-            <ul style={{ margin: 0, paddingLeft: 20 }}>
-              {result.failures.map((f) => (
-                <li key={`${f.fieldId}-${f.rule}`} style={{ marginBottom: 8 }}>
-                  <strong>{f.fieldId}</strong> [{f.rule}]: {f.message}
-                  {f.fix !== undefined && (
-                    <div style={{ marginTop: 4 }}>
-                      Proposed fix: <code>{f.fix}</code>{" "}
-                      <button
-                        type="button"
-                        onClick={() => applyFix(f.fieldId, f.fix as string)}
-                        style={{ cursor: "pointer" }}
-                      >
-                        Apply fix
-                      </button>
-                    </div>
-                  )}
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-      )}
-    </main>
+            {result && (
+              <Card aria-live="polite" className="animate-rise">
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <CardTitle>
+                      Submit {result.decision === "BLOCK" ? "blocked" : "accepted"}
+                    </CardTitle>
+                    {stateBadge(result.verdict.state)}
+                  </div>
+                  <CardDescription>
+                    {result.glimmer
+                      ? `Glimmer ${result.glimmer.outcome} (${result.glimmer.adapter}) · ${
+                          result.escalated
+                            ? `Spark escalation (${result.spark?.adapter ?? "?"})`
+                            : "no Spark call"
+                        } · ${formatCost(submitCost)}`
+                      : "Validators only."}
+                  </CardDescription>
+                </CardHeader>
+                {(result.failures.length > 0 || result.claim) && (
+                  <CardContent className="space-y-3">
+                    {result.claim && (
+                      <p className="flex items-start gap-2 text-[13px] text-ink-dim">
+                        <FileWarning className="mt-0.5 h-4 w-4 shrink-0 text-needs" aria-hidden />
+                        <span>
+                          Claim draft: {result.claim.damagedQty ?? "?"} damaged ·{" "}
+                          {result.claim.carrier} ·{" "}
+                          <Link
+                            href={`/dashboard?session=${sessionId}`}
+                            className="text-accent hover:underline"
+                          >
+                            view on dashboard
+                          </Link>
+                        </span>
+                      </p>
+                    )}
+                    {result.failures.length > 0 && (
+                      <ul className="space-y-3">
+                        {result.failures.map((failure) => (
+                          <li
+                            key={`${failure.fieldId}-${failure.rule}`}
+                            className="rounded-md border border-line bg-sunken p-3"
+                          >
+                            <p className="font-mono text-xs text-ink tabular">
+                              {failure.fieldId}{" "}
+                              <span className="text-ink-faint">[{failure.rule}]</span>
+                            </p>
+                            <p className="mt-1 text-[13px] text-ink-dim">{failure.message}</p>
+                            {failure.fix !== undefined && (
+                              <div className="mt-2 flex flex-wrap items-center gap-2">
+                                <code className="rounded border border-line bg-void px-1.5 py-0.5 font-mono text-xs tabular">
+                                  {failure.fix}
+                                </code>
+                                <Button
+                                  size="sm"
+                                  variant="secondary"
+                                  onClick={() => applyFix(failure.fieldId, failure.fix as string)}
+                                >
+                                  Apply fix
+                                </Button>
+                              </div>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </CardContent>
+                )}
+              </Card>
+            )}
+
+            <Card>
+              <CardContent className="text-[13px] leading-relaxed text-ink-dim">
+                <p>
+                  Session{" "}
+                  <code className="font-mono text-xs tabular">{sessionId.slice(0, 8)}</code>{" "}
+                  ·{" "}
+                  <span className="font-mono text-xs tabular">
+                    {streamed} events · live
+                  </span>
+                </p>
+                <Separator className="my-3" />
+                <Link
+                  href={`/dashboard?session=${sessionId}`}
+                  className="inline-flex items-center gap-1.5 text-accent hover:underline"
+                >
+                  Watch this session on the dashboard
+                  <ArrowRight className="h-3.5 w-3.5" aria-hidden />
+                </Link>
+              </CardContent>
+            </Card>
+          </aside>
+        </div>
+      </main>
+    </div>
   );
 }
