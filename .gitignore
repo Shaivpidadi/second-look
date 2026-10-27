@@ -15,4 +15,8 @@ clips/*.mp4
 clips/*.mov
 clips/*.png
 clips/*.jpg
+clips/*.json
+clips/*.jsonl
+clips/*.md
+clips/*.csv
 !clips/.gitkeep
