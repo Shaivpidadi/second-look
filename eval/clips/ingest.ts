@@ -129,6 +129,8 @@ export interface ClipPathOptions {
   sparkMaxOutputTokens?: number;
   /** Called per streamed keyframe verdict, before the run completes. */
   onKeyframe?: (verdict: KeyframeVerdict) => void;
+  /** Run keyframes sharpest-first; default true. */
+  sharpestFirst?: boolean;
 }
 
 /** Tighter Spark output cap for the clip path (escalation JSON is small). */
@@ -158,6 +160,8 @@ export interface KeyframeVerdict {
   elapsedMs: number;
   cropCached: boolean;
   sparkCached: boolean;
+  /** `fast` = text-only verdict on the sharpest keyframe; `full` = refined. */
+  phase: "fast" | "full";
 }
 
 const SEVERITY: Record<SessionState, number> = { clean: 0, mismatch: 1, blocked: 2 };
@@ -172,13 +176,20 @@ function worstVerdict(frames: ClipFrameResult[]): SessionState {
   return worst;
 }
 
-/** Keyframe indices; undecodable frames (test fakes) all run. */
+/**
+ * Keyframe indices, sharpest first so the fast path verdicts on the best
+ * frame; undecodable frames (test fakes) all run in scan order.
+ */
 function pickKeyframes(frames: SampledFrame[], options: ClipPathOptions): number[] {
   try {
-    return selectKeyframes(analyzeFrames(frames.map((frame) => frame.png)), {
+    const analyses = analyzeFrames(frames.map((frame) => frame.png));
+    const selected = selectKeyframes(analyses, {
       maxKeyframes: options.maxKeyframes,
       changeThreshold: options.keyframeThreshold,
     });
+    if (options.sharpestFirst === false) return selected;
+    const score = new Map(analyses.map((analysis) => [analysis.index, analysis.sharpness]));
+    return [...selected].sort((a, b) => score.get(b)! - score.get(a)! || a - b);
   } catch {
     return frames.map((_, index) => index);
   }
@@ -193,12 +204,62 @@ function frameCacheKey(png: Uint8Array): string {
   }
 }
 
+interface CropResult {
+  crops: Crop[];
+  cached: boolean;
+  latencyMs: number;
+  costUsd: number;
+}
+
+async function cropFrame(
+  frame: SampledFrame,
+  sam: SamAdapter,
+  concept: string,
+  boxes: ClipSidecar["groundTruth"]["boxes"],
+  cropCache: CropCache,
+  options: ClipPathOptions,
+): Promise<CropResult> {
+  const cached = cropCache.get(frameCacheKey(frame.png));
+  if (cached) return { crops: cached, cached: true, latencyMs: 0, costUsd: 0 };
+  const samOut = await sam.crop({
+    image: frame.png,
+    concept,
+    frameWidth: options.frameWidth ?? 720,
+    frameHeight: options.frameHeight ?? 1280,
+    groundTruth: sam.name === "stub" ? boxes : undefined,
+  });
+  cropCache.set(frameCacheKey(frame.png), samOut.crops);
+  return {
+    crops: samOut.crops,
+    cached: false,
+    latencyMs: samOut.latencyMs,
+    costUsd: samOut.costUsd,
+  };
+}
+
+function withSamCall(
+  tiered: TieredPipelineResult,
+  sam: SamAdapter,
+  crop: CropResult,
+): TieredPipelineResult {
+  tiered.modelCalls.push({
+    model: "sam",
+    adapter: sam.name,
+    outcome: crop.cached ? "crop (cached)" : "crop",
+    latencyMs: crop.latencyMs,
+    costUsd: crop.costUsd,
+  });
+  return tiered;
+}
+
 /**
- * Stream keyframes through the live-glasses path, yielding one partial
- * verdict per keyframe: crop (cached by frame hash) then validators
- * first, the Glimmer local pass, and Spark only on disagreement,
- * cross-doc conflict, or handwriting. Paper values come from the clip's
- * documented ground truth; typed values come from the screen reader.
+ * Stream keyframes through the live-glasses path. The sharpest keyframe
+ * takes the fast path: a text-only verdict starts immediately while the
+ * crop runs concurrently, yielding a `fast` partial as soon as the text
+ * verdict lands; the image-grounded rerun follows as the `full`
+ * refinement. Remaining keyframes run the full path. Paper values come
+ * from the clip's documented ground truth; typed values come from the
+ * screen reader.
  */
 export async function* runClipFramesStream(
   frames: SampledFrame[],
@@ -216,51 +277,67 @@ export async function* runClipFramesStream(
     paperValue,
     typedValue: typedValues[fieldId] ?? null,
   }));
-  for (const index of pickKeyframes(frames, options)) {
-    const frame = frames[index]!;
-    const cacheKey = frameCacheKey(frame.png);
-    const cached = cropCache.get(cacheKey);
-    let crops = cached ?? [];
-    let samLatencyMs = 0;
-    let samCostUsd = 0;
-    if (!cached) {
-      const samOut = await sam.crop({
-        image: frame.png,
-        concept,
-        frameWidth: options.frameWidth ?? 720,
-        frameHeight: options.frameHeight ?? 1280,
-        groundTruth: sam.name === "stub" ? boxes : undefined,
-      });
-      crops = samOut.crops;
-      samLatencyMs = samOut.latencyMs;
-      samCostUsd = samOut.costUsd;
-      cropCache.set(cacheKey, crops);
-    }
-    const tiered = await runTieredPipeline({
-      readings,
-      typedValues,
-      crops,
-      glimmer: options.glimmer,
-      spark: options.spark,
-      crossDocOptions: options.crossDocOptions,
-      verdictCache: options.verdictCache,
-      sparkMaxOutputTokens: options.sparkMaxOutputTokens ?? CLIP_SPARK_MAX_TOKENS,
-    });
-    tiered.modelCalls.push({
-      model: "sam",
-      adapter: sam.name,
-      outcome: cached ? "crop (cached)" : "crop",
-      latencyMs: samLatencyMs,
-      costUsd: samCostUsd,
-    });
-    const partial: KeyframeVerdict = {
-      frame: { timestampSec: frame.timestampSec, crops, tiered },
-      elapsedMs: performance.now() - started,
-      cropCached: cached !== null,
-      sparkCached: tiered.sparkCached,
-    };
+  const tieredOptions = {
+    readings,
+    typedValues,
+    glimmer: options.glimmer,
+    spark: options.spark,
+    crossDocOptions: options.crossDocOptions,
+    verdictCache: options.verdictCache,
+    sparkMaxOutputTokens: options.sparkMaxOutputTokens ?? CLIP_SPARK_MAX_TOKENS,
+  };
+  const keyframes = pickKeyframes(frames, options);
+  const emit = (partial: KeyframeVerdict): KeyframeVerdict => {
     options.onKeyframe?.(partial);
-    yield partial;
+    return partial;
+  };
+  if (keyframes.length > 0) {
+    const frame = frames[keyframes[0]!]!;
+    const textPromise = runTieredPipeline({ ...tieredOptions, crops: [] });
+    const cropPromise = cropFrame(frame, sam, concept, boxes, cropCache, options);
+    const tieredText = await textPromise;
+    yield emit({
+      frame: {
+        timestampSec: frame.timestampSec,
+        crops: [],
+        tiered: { ...tieredText, modelCalls: [...tieredText.modelCalls] },
+      },
+      elapsedMs: performance.now() - started,
+      cropCached: false,
+      sparkCached: tieredText.sparkCached,
+      phase: "fast",
+    });
+    const crop = await cropPromise;
+    const tieredFull = tieredText.escalated
+      ? await runTieredPipeline({ ...tieredOptions, crops: crop.crops })
+      : tieredText;
+    yield emit({
+      frame: {
+        timestampSec: frame.timestampSec,
+        crops: crop.crops,
+        tiered: withSamCall(tieredFull, sam, crop),
+      },
+      elapsedMs: performance.now() - started,
+      cropCached: crop.cached,
+      sparkCached: tieredFull.sparkCached,
+      phase: "full",
+    });
+  }
+  for (const index of keyframes.slice(1)) {
+    const frame = frames[index]!;
+    const crop = await cropFrame(frame, sam, concept, boxes, cropCache, options);
+    const tiered = await runTieredPipeline({ ...tieredOptions, crops: crop.crops });
+    yield emit({
+      frame: {
+        timestampSec: frame.timestampSec,
+        crops: crop.crops,
+        tiered: withSamCall(tiered, sam, crop),
+      },
+      elapsedMs: performance.now() - started,
+      cropCached: crop.cached,
+      sparkCached: tiered.sparkCached,
+      phase: "full",
+    });
   }
 }
 
@@ -280,8 +357,13 @@ export async function runClipFrames(
   let cropCacheHits = 0;
   let sparkCacheHits = 0;
   let firstVerdictLatencyMs = 0;
+  let seenFirst = false;
   for await (const verdict of runClipFramesStream(frames, paperValues, typedValues, boxes, options)) {
-    if (results.length === 0) firstVerdictLatencyMs = verdict.elapsedMs;
+    if (!seenFirst) {
+      seenFirst = true;
+      firstVerdictLatencyMs = verdict.elapsedMs;
+    }
+    if (verdict.phase !== "full") continue;
     if (verdict.cropCached) cropCacheHits += 1;
     if (verdict.sparkCached) sparkCacheHits += 1;
     results.push(verdict.frame);

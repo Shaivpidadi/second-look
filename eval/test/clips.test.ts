@@ -7,7 +7,12 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { buildForm, renderForm } from "@second-look/generator";
 import { validateAwb } from "@second-look/validators";
-import { VerdictCache } from "@second-look/pipeline";
+import {
+  analyzeFrames,
+  decodePngToGray,
+  sharpness,
+  VerdictCache,
+} from "@second-look/pipeline";
 import type {
   SamAdapter,
   SamCropOutput,
@@ -113,11 +118,12 @@ describe("runClipFrames", () => {
     const result = await runClipFrames(frames(2), paper, { ...paper }, nominalBoxes(), {
       spark,
     });
-    assert.equal(escalations, 2);
+    // Keyframe 1 runs text + refined escalations; keyframe 2 one more.
+    assert.equal(escalations, 3);
     assert.equal(result.frames[0]!.tiered.modelCalls[1]?.adapter, "recording");
   });
 
-  it("streams one partial verdict per keyframe with cache flags", async () => {
+  it("streams fast then full verdicts with cache flags", async () => {
     const { typed } = buildForm("clip-test", 42);
     const partials = [];
     for await (const partial of runClipFramesStream(
@@ -129,10 +135,15 @@ describe("runClipFrames", () => {
       partials.push(partial);
     }
     // Fake bytes are undecodable, so every frame runs as a keyframe.
-    assert.equal(partials.length, 3);
+    assert.deepEqual(
+      partials.map((p) => p.phase),
+      ["fast", "full", "full", "full"],
+    );
     assert.ok(partials[0]!.elapsedMs >= 0);
+    assert.deepEqual(partials[0]!.frame.crops, []);
     assert.equal(partials[0]!.cropCached, false);
-    assert.equal(partials[1]!.cropCached, true);
+    assert.equal(partials[1]!.cropCached, false);
+    assert.equal(partials[2]!.cropCached, true);
     assert.ok(
       partials.every((p) => p.frame.tiered.verdict.state === "clean"),
     );
@@ -160,7 +171,7 @@ describe("runClipFrames", () => {
       },
     });
     assert.equal(crops, 1);
-    assert.equal(seen.length, 3);
+    assert.equal(seen.length, 4);
     assert.equal(result.framesScanned, 3);
     assert.equal(result.keyframes, 3);
     assert.equal(result.cropCacheHits, 2);
@@ -192,9 +203,78 @@ describe("runClipFrames", () => {
       spark,
       verdictCache: new VerdictCache(),
     });
-    assert.equal(escalations, 1);
+    // Fast text + refined image escalations, then a cache hit on frame 2.
+    assert.equal(escalations, 2);
     assert.equal(result.sparkCacheHits, 1);
     assert.equal(result.frames[1]!.tiered.sparkCached, true);
+  });
+
+  it("overlaps the crop with the fast text verdict", async () => {
+    // Rendezvous: each side waits for the other to start, so a sequential
+    // path would deadlock and trip the timeout instead of passing.
+    let sparkStarted = false;
+    let samStarted = false;
+    const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+    const spark: SparkAdapter = {
+      name: "rendezvous",
+      async escalate(): Promise<SparkEscalationOutput> {
+        sparkStarted = true;
+        for (let i = 0; i < 1000 && !samStarted; i++) await tick();
+        if (!samStarted) throw new Error("spark ran without an overlapping crop");
+        return { explanation: "ok", proposedFixes: [], latencyMs: 1, costUsd: 0 };
+      },
+    };
+    const sam: SamAdapter = {
+      name: "rendezvous",
+      async crop(_input): Promise<SamCropOutput> {
+        samStarted = true;
+        for (let i = 0; i < 1000 && !sparkStarted; i++) await tick();
+        if (!sparkStarted) throw new Error("crop ran without an overlapping escalation");
+        return { crops: [], latencyMs: 1, costUsd: 0 };
+      },
+    };
+    const { form } = buildForm("clip-test", 42);
+    form.invoice.totalQty = form.packing.totalQty - 2;
+    const paper: Record<string, string> = {
+      "invoice.totalQty": String(form.invoice.totalQty),
+      "packing.totalQty": String(form.packing.totalQty),
+    };
+    const phases: string[] = [];
+    for await (const partial of runClipFramesStream(
+      frames(1),
+      paper,
+      { ...paper },
+      nominalBoxes(),
+      { spark, sam },
+    )) {
+      phases.push(partial.phase);
+    }
+    assert.deepEqual(phases, ["fast", "full"]);
+  });
+
+  it("runs keyframes sharpest-first on decodable frames", async () => {
+    const a = renderForm(buildForm("sharp-a", 11).form).awb;
+    const b = renderForm(buildForm("sharp-b", 12).form).awb;
+    const sharpA = sharpness(decodePngToGray(a));
+    const sharpB = sharpness(decodePngToGray(b));
+    assert.notEqual(sharpA, sharpB);
+    const expectedFirst = sharpA > sharpB ? 0 : 1;
+    const sampled = [
+      { index: 0, timestampSec: 0, png: a },
+      { index: 1, timestampSec: 0.5, png: b },
+    ];
+    const analyses = analyzeFrames(sampled.map((f) => f.png));
+    assert.equal(analyses.length, 2);
+    const { typed } = buildForm("clip-test", 42);
+    const stamps: number[] = [];
+    await runClipFrames(sampled, { ...typed }, typed, nominalBoxes(), {
+      maxKeyframes: 2,
+      keyframeThreshold: 0,
+      onKeyframe: (partial) => {
+        if (partial.phase === "full") stamps.push(partial.frame.timestampSec);
+      },
+    });
+    assert.deepEqual(stamps, [expectedFirst === 0 ? 0 : 0.5, expectedFirst === 0 ? 0.5 : 0]);
   });
 
   it("flags a paper invoice/packing quantity gap as mismatch", async () => {

@@ -101,7 +101,7 @@ function partialLogger(label: string): (verdict: KeyframeVerdict) => void {
   return (verdict) => {
     const spark = verdict.frame.tiered.spark;
     console.log(
-      `  [partial ${label}] t+${(verdict.elapsedMs / 1000).toFixed(1)}s ` +
+      `  [partial ${label}:${verdict.phase}] t+${(verdict.elapsedMs / 1000).toFixed(1)}s ` +
         `frame=${verdict.frame.timestampSec.toFixed(1)}s ` +
         `verdict=${verdict.frame.tiered.verdict.state} ` +
         `spark=${spark ? (verdict.sparkCached ? "cached" : "live") : "none"} ` +
