@@ -118,3 +118,12 @@ Top 5 risks, each with a ≤30-min spike:
 - https://github.com/facebook/meta-wearables-dat-ios/blob/main/AGENTS.md
 - https://ai.meta.com/blog/segment-anything-model-3/
 - https://learnopencv.com/sam-3-whats-new/
+
+## Batch log
+- [x] Batch 8 (Oct 27): single-keyframe fast path (text verdict concurrent
+  with crop, image-grounded refinement; first verdicts 2.7-4.5s p50 vs
+  <5s over 3 real runs, one 284s API stall noted), `vision-real` arm on
+  the hard split (100.0%/100.0% on 40 forms, needs-human abstention
+  wired, 0 observed), and demo prep (`docs/DEMO.md` 3-minute script +
+  `clips:demo` one-command replay, verified offline). 81/150 calls.
+  See STATUS.md for the p50/p95 box and spend.
