@@ -176,6 +176,39 @@ describe("RealSamAdapter", () => {
     }
   });
 
+  it("yields zero crops on the verified empty-output envelope", async () => {
+    const fetchImpl = (async () =>
+      new Response(
+        JSON.stringify({
+          object: "response",
+          status: "completed",
+          output: [
+            {
+              type: "message",
+              role: "assistant",
+              content: [{ type: "output_text", text: "", annotations: [] }],
+              status: "completed",
+            },
+          ],
+          usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0, images_processed: 1 },
+        }),
+        { status: 200 },
+      )) as unknown as typeof fetch;
+    const model = process.env.MODEL_API_KEY;
+    try {
+      process.env.MODEL_API_KEY = "test-key";
+      const out = await new RealSamAdapter({ fetchImpl }).crop({
+        image: FRAME,
+        concept: "shipping document",
+      });
+      assert.deepEqual(out.crops, []);
+      assert.equal(out.costUsd, 0);
+    } finally {
+      if (model !== undefined) process.env.MODEL_API_KEY = model;
+      else delete process.env.MODEL_API_KEY;
+    }
+  });
+
   it("surfaces non-2xx statuses as clean errors", async () => {
     const fetchImpl = (async () => new Response("nope", { status: 404 })) as unknown as typeof fetch;
     const model = process.env.MODEL_API_KEY;

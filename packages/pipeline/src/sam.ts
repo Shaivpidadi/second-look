@@ -1,4 +1,5 @@
 import type { BoundingBox, Crop } from "./types.ts";
+import { postJson, recordUsage, type RetryOptions } from "./http.ts";
 import { requireModelApiKey } from "./key.ts";
 
 export interface SamCropInput {
@@ -87,6 +88,7 @@ export interface RealSamOptions {
   baseUrl?: string;
   model?: string;
   fetchImpl?: typeof fetch;
+  retry?: RetryOptions;
 }
 
 function dataUrl(image: Uint8Array): string {
@@ -200,24 +202,47 @@ export function extractBoxes(
   });
 }
 
+function extractSamUsage(payload: unknown): { inputTokens: number; outputTokens: number } {
+  if (
+    payload !== null &&
+    typeof payload === "object" &&
+    !Array.isArray(payload) &&
+    "usage" in payload
+  ) {
+    const usage = (payload as Record<string, unknown>).usage;
+    if (usage !== null && typeof usage === "object" && !Array.isArray(usage)) {
+      const record = usage as Record<string, unknown>;
+      return {
+        inputTokens: typeof record.input_tokens === "number" ? record.input_tokens : 0,
+        outputTokens: typeof record.output_tokens === "number" ? record.output_tokens : 0,
+      };
+    }
+  }
+  return { inputTokens: 0, outputTokens: 0 };
+}
+
 /**
  * Real adapter: reads MODEL_API_KEY (alias META_API_KEY) from the
  * environment at call time and POSTs one concept plus one frame to the
- * Responses API `sam-3.1` model. Request/response shapes are unverified
- * until the PLAN spike 2 runs with a key, so parsing stays defensive;
- * crop bytes pass the frame through until a pixel-crop step exists.
+ * Responses API `sam-3.1` model. Verified: the request returns HTTP 200
+ * with `images_processed: 1`, but the message holds empty text and no
+ * boxes, masks, or annotations, so no box shape is confirmed yet (see
+ * STATUS.md); parsing stays defensive and yields zero crops until one is.
+ * Crop bytes pass the frame through until a pixel-crop step exists.
  */
 export class RealSamAdapter implements SamAdapter {
   readonly name = "real";
   private readonly baseUrl: string;
   private readonly model: string;
   private readonly fetchImpl: typeof fetch;
+  private readonly retry?: RetryOptions;
 
   constructor(options: RealSamOptions = {}) {
     this.baseUrl =
       options.baseUrl ?? process.env.MODEL_API_BASE_URL ?? "https://api.meta.ai/v1";
     this.model = options.model ?? "sam-3.1";
     this.fetchImpl = options.fetchImpl ?? fetch;
+    this.retry = options.retry;
   }
 
   async crop(input: SamCropInput): Promise<SamCropOutput> {
@@ -226,45 +251,36 @@ export class RealSamAdapter implements SamAdapter {
     const key = requireModelApiKey();
     const frameWidth = input.frameWidth ?? 720;
     const frameHeight = input.frameHeight ?? 1280;
-    let response: Response;
-    try {
-      response = await this.fetchImpl(`${this.baseUrl}/responses`, {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${key}`,
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({
-          model: this.model,
-          input: [
-            {
-              role: "user",
-              content: [
-                {
-                  type: "input_text",
-                  text: `Locate every instance of this concept and return bounding boxes as JSON: ${concept}`,
-                },
-                { type: "input_image", image_url: dataUrl(input.image) },
-              ],
-            },
-          ],
-          max_output_tokens: 1024,
-        }),
-      });
-    } catch (error) {
-      throw new Error(
-        `sam: Model API request failed (${error instanceof Error ? error.message : String(error)})`,
-      );
-    }
-    if (!response.ok) {
-      throw new Error(`sam: Model API request failed with status ${response.status}`);
-    }
-    const payload = (await response.json()) as unknown;
+    const payload = await postJson({
+      fetchImpl: this.fetchImpl,
+      url: `${this.baseUrl}/responses`,
+      key,
+      body: {
+        model: this.model,
+        input: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "input_text",
+                text: `Locate every instance of this concept and return bounding boxes as JSON: ${concept}`,
+              },
+              { type: "input_image", image_url: dataUrl(input.image) },
+            ],
+          },
+        ],
+        max_output_tokens: 1024,
+      },
+      what: "sam",
+      retry: this.retry,
+    });
+    const usage = extractSamUsage(payload);
+    recordUsage(usage.inputTokens, usage.outputTokens);
     const boxes = extractBoxes(payload, frameWidth, frameHeight);
     return {
       crops: boxes.map((box) => ({ box, image: input.image })),
       latencyMs: performance.now() - started,
-      // Pricing is unverified until PLAN spike 2; report $0 until measured.
+      // Pricing is unverified; report $0 until measured.
       costUsd: 0,
     };
   }
