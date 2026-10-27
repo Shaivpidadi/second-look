@@ -33,10 +33,10 @@ describe("resolveModelMode", () => {
 });
 
 describe("createPipelineAdapters", () => {
-  it("selects real Spark with stub SAM/Glimmer in real mode", () => {
+  it("selects real Spark and Spark boxes with stub Glimmer in real mode", () => {
     const real = createPipelineAdapters("real");
     assert.equal(real.spark.name, "real");
-    assert.equal(real.sam.name, "stub");
+    assert.equal(real.sam.name, "spark-box");
     assert.equal(real.glimmer.name, "stub");
     const stub = createPipelineAdapters("stub");
     assert.equal(stub.spark.name, "stub");
