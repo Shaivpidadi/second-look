@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { logAuditEntry } from "../../../lib/audit-store";
 import { evaluateSubmission } from "../../../lib/gate";
 
 interface SubmitBody {
@@ -12,5 +13,33 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, error: "bad_submit" }, { status: 400 });
   }
   const result = evaluateSubmission(body.values);
+  const ts = new Date().toISOString();
+  try {
+    if (result.failures.length === 0) {
+      await logAuditEntry({
+        ts,
+        sessionId: body.sessionId,
+        fieldId: "*",
+        paperValue: null,
+        typedValue: null,
+        verdict: result.verdict.state,
+        action: "submit_allow",
+      });
+    } else {
+      for (const failure of result.failures) {
+        await logAuditEntry({
+          ts,
+          sessionId: body.sessionId,
+          fieldId: failure.fieldId,
+          paperValue: null,
+          typedValue: body.values[failure.fieldId] ?? null,
+          verdict: result.verdict.state,
+          action: `submit_block:${failure.rule}`,
+        });
+      }
+    }
+  } catch (error) {
+    console.error("audit write failed", error);
+  }
   return NextResponse.json({ ok: true, ...result });
 }

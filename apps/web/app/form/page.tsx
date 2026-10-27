@@ -138,7 +138,10 @@ export default function ReceivingForm() {
 
       <p style={{ marginTop: 16, fontSize: 14 }}>
         Session <code>{sessionId.slice(0, 8)}</code> · {streamed} typed events
-        streamed
+        streamed ·{" "}
+        <a href={`/dashboard?session=${sessionId}`}>
+          watch this session on the dashboard
+        </a>
       </p>
 
       {result && (

@@ -7,6 +7,9 @@ export default function Home() {
       <p>
         <Link href="/form">Open the mock warehouse receiving form</Link>
       </p>
+      <p>
+        <Link href="/dashboard">Open the verdicts &amp; audit dashboard</Link>
+      </p>
     </main>
   );
 }
