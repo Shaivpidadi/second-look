@@ -1,45 +1,46 @@
-# Status — Tiered batch done (Oct 27)
+# Status — Clip-path batch done (Oct 27)
 
 ## What works
-- Tiered verdict pipeline end to end (`packages/pipeline`): deterministic
-  validators first (check digits, paper/typed match, cross-doc), then the
-  Glimmer stub pass (deterministic agree/disagree from fixtures plus PII
-  redaction), then the Spark stub only on disagreement, cross-doc
-  conflict, or handwriting. Check-digit failures block with no Spark call.
-- Real adapters read `MODEL_API_KEY` (alias `META_API_KEY`) from env at
-  call time and fail cleanly naming both vars when no key exists.
-- Per-call latency and estimated cost ride the audit log (`modelCalls`);
-  the dashboard shows "Glimmer agree, no Spark call, $0" vs Spark
-  escalation runs plus session totals.
-- Live verdict to `/form` over SSE (`/api/verdicts`): typed events
-  publish partial verdicts with session sequence numbers; the client
-  tracker applies per-field debounce plus stale-sequence drops, so an
-  artificial verdict delay (`VERDICT_DELAY_MS`, e.g. 2000) still renders
-  exactly one block and one fix (test in `lib/live-verdict.test.ts`,
-  PLAN risk 5).
-- Claim drafter v1: a POD exception note mentioning damage (e.g. "2
-  cartons damaged") produces a template draft (carrier, BOL/AWB refs,
-  damaged qty, `[AMOUNT TBD]`) with a Spark adapter hook for later; the
-  dashboard lists drafts with a copy button.
-- Generator defaults to a 100-form corpus; the eval runner reports the
-  PLAN trio (check-digit-only, single-model, tiered) with stubbed model
-  arms labelled "(stubbed)".
-- `/form` mock warehouse receiving form: AWB, BOL number, carrier,
-  container, SSCC, shipped/received cartons, POD exception note.
-  Submit-gate BLOCK carries cited rules plus deterministic fixes with an
-  Apply-fix button.
+- SAM crop service (`packages/pipeline/src/sam.ts`): `SamAdapter`
+  interface with a deterministic stub (one crop per generator
+  ground-truth box, centered document box fallback, $0) and a real
+  `sam-3.1` Responses API adapter. Both enforce one noun-phrase concept
+  per request; the real adapter reads `MODEL_API_KEY` (alias
+  `META_API_KEY`) at call time and fails cleanly naming both vars when
+  unset. Crops feed the Glimmer/Spark adapters.
+- Fallback clip path: `eval/clips/render.ts` renders 2 synthetic POV
+  clips (`clip-awb.mp4`, `clip-pod.mp4`, 720x1280 H.264, ~80 KiB each)
+  from generator PNGs with a SYNTHETIC PLACEHOLDER title card,
+  perspective tilt, slight blur, and handheld jitter. JSON sidecars
+  carry the documented ground truth plus nominal stub boxes.
+  `eval/clips/ingest.ts` samples frames at 2-7 fps (ffmpeg) and runs
+  each through SAM crop -> validators -> Glimmer -> Spark, the same
+  path live glasses would use. Generated clips, sidecars, and audit
+  exports stay gitignored.
+- Scripted E2E (`eval/clips/e2e.ts`, 2 fps): all 4 PLAN checks pass —
+  swapped AWB digit -> block + fix (paper value proposed); bad check
+  digit with models off -> still blocks on validators alone (0 model
+  calls); invoice (363) vs packing (365) qty gap -> mismatch flag +
+  Spark escalation; "2 cartons damaged" on POD -> template claim draft
+  with damagedQty 2. End-to-end latency per check: 84-93ms, far under
+  the <5s target.
+- Audit export: E2E writes `audit-clip-e2e.jsonl` plus readable
+  `.md`/`.csv` summaries (`packages/pipeline/src/export.ts`); the
+  `clips:export` CLI re-exports any session, including form sessions
+  under `.audit/`.
+- README.md covers what it does, architecture, how to run the form,
+  dashboard, eval, and clip path, and which parts are stubbed until
+  keys exist.
 
 ## Test results
-- `pnpm -r test`: 130 pass, 0 fail — validators 22, pipeline 48, web 24,
-  generator 17, eval 19.
+- `pnpm -r test`: 153 pass, 0 fail — validators 22, pipeline 66, web
+  24, generator 17, eval 24 (incl. clip ingest + ffmpeg sampling).
 - `pnpm -r typecheck`: pass (5 projects).
 - `next build` (`@second-look/web`): pass — `/`, `/form`,
   `/dashboard`, `/api/events`, `/api/submit`, `/api/verdicts`,
   `/api/claims`, `/api/audit`.
-- Eval over 100 generated forms: check-digit-only P 100% / R 60% / $0;
-  single-model (stubbed) P 100% / R 98.8% / $0.50; tiered (stubbed)
-  P 100% / R 98.8% / $0.42. The one miss is a no-op injection (identical
-  adjacent digits swapped) that leaves no signal.
+- Clip E2E: 4/4 PASS, each <5000ms (measured 84-93ms on stub adapters;
+  real-model latency unmeasured until keys exist).
 - Live-server smoke (SSE push, submit, claims) not run: the shell
   sandbox in this session blocks listening sockets. Routes are covered
   by `next build` plus unit tests of the bus, tracker, and gate; rerun
@@ -49,13 +50,15 @@
 ## Skipped (need a human)
 - API keys in `.env` (`MODEL_API_KEY` / `META_API_KEY`): real Spark and
   SAM calls stay unwired until a key exists; stubs cover every path.
+  Responses API request/response shapes and pricing unverified (PLAN
+  spikes 2 and 4).
 - Glasses developer mode + pairing, Xcode signing + physical-device
-  trust prompts, POV fallback clip recording.
-- Verifying the Meta Responses API request/response shapes and pricing
-  (PLAN spikes 2 and 4) once a key is available.
-
-## Next steps (from PLAN.md)
-- SAM crop service + 2 POV fallback clips through the same path.
+  trust prompts, recording real POV clips (the 2 committed-path clips
+  are labelled synthetic placeholders).
 - Glimmer local runner spike (weights only under
   `/Volumes/Crucial X9/second-look-models`, never the internal disk).
-- Record backup demo clips; README + audit export for the video close.
+
+## Next steps (from PLAN.md)
+- Glimmer local runner spike; point the clip path at real crops/reads.
+- Record backup demo clips; dry-run the demo script.
+- Shoot + edit the 3-min video; overlay eval numbers; submit Nov 4.
