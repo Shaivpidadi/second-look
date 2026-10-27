@@ -59,5 +59,9 @@ export interface ClaimDraft {
   awbRef: string;
   exceptionNote: string;
   damagedQty: number | null;
+  /** Claimed amount; a placeholder until the adjuster prices the damage. */
+  amount: string;
+  /** "template" today; "spark" once the Spark hook drafts the body. */
+  source: "template" | "spark";
   body: string;
 }

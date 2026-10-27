@@ -5,7 +5,15 @@ export {
   type AuditStoreOptions,
 } from "./audit.ts";
 export { checkDigitChecks, fieldMatchChecks } from "./checks.ts";
-export { draftClaim, type ClaimDraftInput } from "./claim.ts";
+export {
+  CLAIM_AMOUNT_PLACEHOLDER,
+  draftClaim,
+  draftClaimTemplate,
+  mentionsDamage,
+  parseDamagedQty,
+  type ClaimDraftInput,
+  type DraftClaimOptions,
+} from "./claim.ts";
 export { checkCrossDoc, type CrossDocOptions } from "./crossdoc.ts";
 export {
   createGlimmerAdapter,
