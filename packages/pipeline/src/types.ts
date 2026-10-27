@@ -30,6 +30,17 @@ export interface Verdict {
   failures: FieldCheck[];
 }
 
+/** One model call in a tiered run, with measured latency and cost. */
+export interface ModelCall {
+  model: "glimmer" | "spark";
+  /** Which adapter served the call: "stub" or "real". */
+  adapter: string;
+  outcome: string;
+  latencyMs: number;
+  /** Estimated USD; exact for stubs ($0 local / fixed estimate), measured for real calls. */
+  costUsd: number;
+}
+
 export interface AuditEntry {
   ts: string;
   sessionId: string;
@@ -38,6 +49,8 @@ export interface AuditEntry {
   typedValue: string | null;
   verdict: SessionState;
   action: string;
+  /** Per-call latency/cost for the pipeline run that produced this entry. */
+  modelCalls?: ModelCall[];
 }
 
 export interface ClaimDraft {

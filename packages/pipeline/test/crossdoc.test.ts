@@ -68,4 +68,23 @@ describe("checkCrossDoc", () => {
     const checks = checkCrossDoc({ ...CLEAN, "pod.receivedCartons": "-1" });
     assert.equal(checks.filter((c) => !c.passed).length, 1);
   });
+
+  it("omits missing-input checks when skipMissingInputs is set", () => {
+    const checks = checkCrossDoc(
+      { "bol.cartons": "120", "pod.receivedCartons": "120" },
+      { skipMissingInputs: true },
+    );
+    assert.equal(checks.length, 1);
+    assert.equal(checks[0]?.fieldId, "pod.receivedCartons");
+    assert.ok(checks[0]?.passed);
+  });
+
+  it("still fails present-but-conflicting inputs with skipMissingInputs", () => {
+    const checks = checkCrossDoc(
+      { "bol.cartons": "120", "pod.receivedCartons": "118" },
+      { skipMissingInputs: true },
+    );
+    assert.equal(checks.length, 1);
+    assert.equal(checks[0]?.passed, false);
+  });
 });

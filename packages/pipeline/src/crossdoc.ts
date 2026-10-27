@@ -3,6 +3,12 @@ import type { FieldCheck } from "./types.ts";
 export interface CrossDocOptions {
   /** Absolute kg tolerance for the BOL-vs-AWB weight comparison. */
   weightToleranceKg?: number;
+  /**
+   * Omit checks whose inputs are absent instead of failing them. For live
+   * and partial form values where not every document is typed yet; eval
+   * runs with the default so missing inputs still fail.
+   */
+  skipMissingInputs?: boolean;
 }
 
 function parseCount(raw: string | undefined): number | null {
@@ -74,16 +80,30 @@ function receivedCheck(values: Record<string, string>): FieldCheck {
   };
 }
 
+const CROSS_DOC_INPUTS: Record<string, string[]> = {
+  "invoice.totalQty": ["invoice.totalQty", "packing.totalQty"],
+  "awb.weightKg": ["bol.weightKg", "awb.weightKg"],
+  "pod.receivedCartons": ["bol.cartons", "pod.receivedCartons"],
+};
+
 /**
  * Cross-document checks over flat typed values (see generator
  * paperValues): invoice qty vs packing list, BOL weight vs AWB weight,
  * POD received vs shipped count. Missing or non-numeric inputs fail the
- * check they belong to. Deterministic; needs no model or API key.
+ * check they belong to, unless skipMissingInputs omits checks whose
+ * inputs are absent. Deterministic; needs no model or API key.
  */
 export function checkCrossDoc(
   values: Record<string, string>,
   options: CrossDocOptions = {},
 ): FieldCheck[] {
   const tolerance = options.weightToleranceKg ?? 0;
-  return [qtyCheck(values), weightCheck(values, tolerance), receivedCheck(values)];
+  const checks = [qtyCheck(values), weightCheck(values, tolerance), receivedCheck(values)];
+  if (!options.skipMissingInputs) return checks;
+  return checks.filter((check) =>
+    (CROSS_DOC_INPUTS[check.fieldId] ?? []).every((input) => {
+      const value = values[input];
+      return value !== undefined && value !== "";
+    }),
+  );
 }
