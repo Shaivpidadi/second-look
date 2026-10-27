@@ -1,5 +1,16 @@
-import { reduceVerdict } from "@second-look/pipeline";
-import type { FieldCheck, Verdict } from "@second-look/pipeline";
+import {
+  draftClaim,
+  mentionsDamage,
+  reduceVerdict,
+  runTieredPipeline,
+} from "@second-look/pipeline";
+import type {
+  ClaimDraft,
+  FieldCheck,
+  FieldReading,
+  ModelCall,
+  Verdict,
+} from "@second-look/pipeline";
 import {
   computeAwbCheckDigit,
   computeContainerCheckDigit,
@@ -133,5 +144,92 @@ export function evaluateSubmission(
     decision: failures.length > 0 ? "BLOCK" : "ALLOW",
     verdict,
     failures,
+  };
+}
+
+export interface TieredGateResult extends GateResult {
+  glimmer: {
+    outcome: "agree" | "disagree";
+    reason?: string;
+    adapter: string;
+    latencyMs: number;
+    costUsd: number;
+  };
+  spark: {
+    explanation: string;
+    adapter: string;
+    latencyMs: number;
+    costUsd: number;
+  } | null;
+  escalated: boolean;
+  escalationReasons: string[];
+  modelCalls: ModelCall[];
+  /** Template claim draft when the POD note mentions damage, else null. */
+  claim: ClaimDraft | null;
+}
+
+/** Fields the tiered pipeline judges; paper values are unknown on the form. */
+const TIERED_FIELDS = [
+  "awb.awbNumber",
+  "bol.containerNumber",
+  "label.sscc",
+  "bol.cartons",
+  "pod.receivedCartons",
+  "pod.exceptionNote",
+];
+
+function readingsFromValues(values: Record<string, string>): FieldReading[] {
+  return TIERED_FIELDS.map((fieldId) => ({
+    fieldId,
+    paperValue: null,
+    typedValue: values[fieldId] ?? null,
+  }));
+}
+
+/**
+ * Submit gate with the tiered pipeline end to end: the deterministic sync
+ * gate decides ALLOW/BLOCK with fix proposals, then the tiered run adds
+ * the Glimmer pass, conditional Spark escalation, per-call latency/cost,
+ * and a claim draft when the POD note mentions damage.
+ */
+export async function evaluateTieredSubmission(
+  values: Record<string, string>,
+): Promise<TieredGateResult> {
+  const sync = evaluateSubmission(values);
+  const tiered = await runTieredPipeline({
+    readings: readingsFromValues(values),
+    typedValues: values,
+    crossDocOptions: { skipMissingInputs: true },
+  });
+  const note = values["pod.exceptionNote"] ?? "";
+  const claim = mentionsDamage(note)
+    ? await draftClaim({
+        carrier: values["bol.carrier"] ?? "",
+        bolRef: values["bol.bolNumber"] ?? "",
+        awbRef: values["awb.awbNumber"] ?? "",
+        exceptionNote: note,
+      })
+    : null;
+  return {
+    ...sync,
+    glimmer: {
+      outcome: tiered.glimmer.outcome,
+      reason: tiered.glimmer.reason,
+      adapter: tiered.modelCalls[0]?.adapter ?? "stub",
+      latencyMs: tiered.glimmer.latencyMs,
+      costUsd: tiered.glimmer.costUsd,
+    },
+    spark: tiered.spark
+      ? {
+          explanation: tiered.spark.explanation,
+          adapter: tiered.modelCalls[1]?.adapter ?? "stub",
+          latencyMs: tiered.spark.latencyMs,
+          costUsd: tiered.spark.costUsd,
+        }
+      : null,
+    escalated: tiered.escalated,
+    escalationReasons: tiered.escalationReasons,
+    modelCalls: tiered.modelCalls,
+    claim,
   };
 }

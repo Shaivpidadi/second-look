@@ -9,6 +9,8 @@ interface Field {
 
 const FIELDS: Field[] = [
   { id: "awb.awbNumber", label: "AWB number" },
+  { id: "bol.bolNumber", label: "BOL number" },
+  { id: "bol.carrier", label: "Carrier" },
   { id: "bol.containerNumber", label: "Container number" },
   { id: "label.sscc", label: "SSCC (pallet label)" },
   { id: "bol.cartons", label: "Shipped cartons" },
@@ -18,6 +20,8 @@ const FIELDS: Field[] = [
 
 const PREFILL: Record<string, string> = {
   "awb.awbNumber": "02027342210",
+  "bol.bolNumber": "BOL-00421307",
+  "bol.carrier": "HARBOUR LINE GOODS",
   "bol.containerNumber": "CSQU3054383",
   "label.sscc": "106141410000001238",
   "bol.cartons": "120",
@@ -32,10 +36,31 @@ interface Failure {
   fix?: string;
 }
 
+interface ModelCallInfo {
+  model: string;
+  adapter: string;
+  outcome: string;
+  latencyMs: number;
+  costUsd: number;
+}
+
+interface ClaimInfo {
+  carrier: string;
+  bolRef: string;
+  awbRef: string;
+  damagedQty: number | null;
+  source: string;
+}
+
 interface SubmitResult {
   decision: "ALLOW" | "BLOCK";
   verdict: { state: string };
   failures: Failure[];
+  glimmer?: { outcome: string; adapter: string; latencyMs: number; costUsd: number };
+  spark?: { explanation: string; adapter: string; latencyMs: number; costUsd: number } | null;
+  escalated?: boolean;
+  modelCalls?: ModelCallInfo[];
+  claim?: ClaimInfo | null;
 }
 
 export default function ReceivingForm() {
@@ -158,6 +183,22 @@ export default function ReceivingForm() {
             {result.decision === "BLOCK" ? "Blocked" : "Accepted"} (
             {result.verdict.state})
           </h2>
+          {result.glimmer && (
+            <p style={{ margin: "0 0 8px", fontSize: 14 }}>
+              Glimmer {result.glimmer.outcome} ({result.glimmer.adapter}) ·{" "}
+              {result.escalated
+                ? `Spark escalation (${result.spark?.adapter ?? "?"})`
+                : "no Spark call"}{" "}
+              · ${(result.modelCalls ?? []).reduce((n, c) => n + c.costUsd, 0).toFixed(4)}
+            </p>
+          )}
+          {result.claim && (
+            <p style={{ margin: "0 0 8px", fontSize: 14 }}>
+              Claim draft: {result.claim.damagedQty ?? "?"} damaged ·{" "}
+              {result.claim.carrier} ·{" "}
+              <a href={`/dashboard?session=${sessionId}`}>view on dashboard</a>
+            </p>
+          )}
           {result.failures.length === 0 ? (
             <p style={{ margin: 0 }}>All checks passed.</p>
           ) : (
