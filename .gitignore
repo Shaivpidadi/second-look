@@ -11,6 +11,8 @@ out/
 .audit/
 eval/corpus/*
 !eval/corpus/.gitkeep
+eval/corpus-hard/*
+!eval/corpus-hard/.gitkeep
 clips/*.mp4
 clips/*.mov
 clips/*.png

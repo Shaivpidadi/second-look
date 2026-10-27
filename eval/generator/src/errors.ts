@@ -1,3 +1,4 @@
+import { validateAwb, validateContainer, validateSscc } from "@second-look/validators";
 import { int, type Rng } from "./prng.ts";
 import type { SyntheticForm } from "./documents.ts";
 
@@ -8,7 +9,9 @@ export type ErrorKind =
   | "short_count"
   | "qty_gap"
   | "weight_gap"
-  | "sscc_transposition";
+  | "sscc_transposition"
+  | "near_miss"
+  | "cross_doc_only";
 
 export interface InjectedError {
   kind: ErrorKind;
@@ -112,7 +115,103 @@ export function applyError(
       typed["label.sscc"] = value;
       return { kind, fieldId: "label.sscc", paperValue: paper, typedValue: value };
     }
+    case "near_miss": {
+      return applyNearMiss(form, typed, rng);
+    }
+    case "cross_doc_only": {
+      return applyCrossDocOnly(form, typed, rng);
+    }
   }
+}
+
+const NEAR_MISS_FIELDS = [
+  { fieldId: "awb.awbNumber", validate: validateAwb },
+  { fieldId: "bol.containerNumber", validate: validateContainer },
+  { fieldId: "label.sscc", validate: validateSscc },
+] as const;
+
+function swapAt(value: string, at: number): string {
+  return value.slice(0, at) + value[at + 1]! + value[at]! + value.slice(at + 2);
+}
+
+/**
+ * A digit swap the validators cannot see: the first adjacent transposition
+ * (from a seeded offset) that still passes its check digit. Falls back to
+ * a plain swap when no position preserves validity.
+ */
+function applyNearMiss(
+  form: SyntheticForm,
+  typed: TypedValues,
+  rng: Rng,
+): InjectedError {
+  const paper = paperValues(form);
+  const untouched = NEAR_MISS_FIELDS.filter(({ fieldId }) => typed[fieldId] === paper[fieldId]);
+  const fields = [...(untouched.length > 0 ? untouched : NEAR_MISS_FIELDS)];
+  const field = fields.splice(Math.floor(rng() * fields.length), 1)[0]!;
+  const original = paper[field.fieldId]!;
+  const start = int(rng, 0, original.length - 2);
+  let fallback: string | null = null;
+  const positions: Array<[number, number]> = [];
+  for (let step = 0; step < original.length - 1; step++) {
+    const at = (start + step) % (original.length - 1);
+    positions.push([at, at + 1]);
+  }
+  for (let i = 0; i < original.length; i++) {
+    for (let j = i + 2; j < original.length; j++) {
+      positions.push([(start + i) % original.length, (start + j) % original.length]);
+    }
+  }
+  for (const [a, b] of positions) {
+    const lo = Math.min(a, b);
+    const hi = Math.max(a, b);
+    const candidate =
+      original.slice(0, lo) + original[hi]! + original.slice(lo + 1, hi) + original[lo]! + original.slice(hi + 1);
+    if (candidate === original) continue;
+    fallback ??= candidate;
+    if (field.validate(candidate).valid) {
+      typed[field.fieldId] = candidate;
+      return { kind: "near_miss", fieldId: field.fieldId, paperValue: original, typedValue: candidate };
+    }
+  }
+  // No validity-preserving swap: keep a plain differing swap so the
+  // error still shows as a paper/typed diff.
+  const value = fallback ?? swapAt(original, 0);
+  typed[field.fieldId] = value;
+  return { kind: "near_miss", fieldId: field.fieldId, paperValue: original, typedValue: value };
+}
+
+/**
+ * A genuine paper discrepancy typed faithfully: the source docs disagree
+ * but paper matches typed everywhere, so only cross-document checks fail.
+ */
+function applyCrossDocOnly(
+  form: SyntheticForm,
+  typed: TypedValues,
+  rng: Rng,
+): InjectedError {
+  const target = int(rng, 0, 2);
+  if (target === 0) {
+    const paper = String(form.invoice.totalQty);
+    form.invoice.totalQty = form.packing.totalQty - int(rng, 1, 3);
+    const value = String(form.invoice.totalQty);
+    typed["invoice.totalQty"] = value;
+    typed["packing.totalQty"] = String(form.packing.totalQty);
+    return { kind: "cross_doc_only", fieldId: "invoice.totalQty", paperValue: paper, typedValue: value };
+  }
+  if (target === 1) {
+    const paper = String(form.awb.weightKg);
+    form.awb.weightKg = form.bol.weightKg + int(rng, 50, 400);
+    const value = String(form.awb.weightKg);
+    typed["awb.weightKg"] = value;
+    typed["bol.weightKg"] = String(form.bol.weightKg);
+    return { kind: "cross_doc_only", fieldId: "awb.weightKg", paperValue: paper, typedValue: value };
+  }
+  const paper = String(form.bol.cartons);
+  form.pod.receivedCartons = form.bol.cartons - int(rng, 1, 3);
+  const value = String(form.pod.receivedCartons);
+  typed["pod.receivedCartons"] = value;
+  typed["bol.cartons"] = paper;
+  return { kind: "cross_doc_only", fieldId: "pod.receivedCartons", paperValue: paper, typedValue: value };
 }
 
 const KINDS: ErrorKind[] = [
@@ -148,4 +247,54 @@ export function injectErrors(
     errors.push(applyError(form, typed, kinds.splice(at, 1)[0]!, rng));
   }
   return errors;
+}
+
+const HARD_KINDS: ErrorKind[] = [
+  "near_miss",
+  "near_miss",
+  "cross_doc_only",
+  "cross_doc_only",
+  "transposition",
+  "dropped_digit",
+  "swapped_fields",
+];
+
+/**
+ * Inject 0-2 hard-split errors: validator-blind near-misses and
+ * diff-free cross-document gaps, plus classic typos for variety. About
+ * a fifth of hard forms stay clean so eval can measure precision.
+ */
+export function injectHardErrors(
+  form: SyntheticForm,
+  typed: TypedValues,
+  rng: Rng,
+): InjectedError[] {
+  if (rng() < 0.2) return [];
+  const count = 1 + Math.floor(rng() * 2);
+  const kinds = [...HARD_KINDS];
+  const errors: InjectedError[] = [];
+  for (let i = 0; i < count && kinds.length > 0; i++) {
+    const at = Math.floor(rng() * kinds.length);
+    errors.push(applyError(form, typed, kinds.splice(at, 1)[0]!, rng));
+  }
+  return errors;
+}
+
+/**
+ * Guarantee a POD exception note: a damage note on error forms (claim
+ * path) or a benign handoff note on clean forms (precision trap).
+ */
+export function ensureExceptionNote(
+  form: SyntheticForm,
+  typed: TypedValues,
+  rng: Rng,
+  hasErrors: boolean,
+): void {
+  if (form.pod.exceptionNote) {
+    typed["pod.exceptionNote"] = form.pod.exceptionNote;
+    return;
+  }
+  const note = hasErrors ? `${int(rng, 1, 3)} CARTONS DAMAGED` : "LEFT AT DOCK DOOR 3";
+  form.pod.exceptionNote = note;
+  typed["pod.exceptionNote"] = note;
 }

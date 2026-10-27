@@ -113,6 +113,121 @@ export interface DocPage {
   handRow?: number;
 }
 
+/** Hard-split image degradations, applied in blur/glare/skew order. */
+export interface DegradeSpec {
+  blur?: boolean;
+  glare?: boolean;
+  skew?: boolean;
+}
+
+/** Box blur, radius 2, separable passes over RGB bytes. */
+export function blurPixels(
+  pixels: Uint8Array,
+  width: number,
+  height: number,
+): Uint8Array {
+  const radius = 2;
+  const horizontal = new Uint8Array(pixels.length);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      for (let c = 0; c < 3; c++) {
+        let sum = 0;
+        let count = 0;
+        for (let dx = -radius; dx <= radius; dx++) {
+          const sx = x + dx;
+          if (sx < 0 || sx >= width) continue;
+          sum += pixels[(y * width + sx) * 3 + c]!;
+          count++;
+        }
+        horizontal[(y * width + x) * 3 + c] = Math.round(sum / count);
+      }
+    }
+  }
+  const out = new Uint8Array(pixels.length);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      for (let c = 0; c < 3; c++) {
+        let sum = 0;
+        let count = 0;
+        for (let dy = -radius; dy <= radius; dy++) {
+          const sy = y + dy;
+          if (sy < 0 || sy >= height) continue;
+          sum += horizontal[(sy * width + x) * 3 + c]!;
+          count++;
+        }
+        out[(y * width + x) * 3 + c] = Math.round(sum / count);
+      }
+    }
+  }
+  return out;
+}
+
+/** White glare blooming from the top-right corner. */
+export function glarePixels(
+  pixels: Uint8Array,
+  width: number,
+  height: number,
+): Uint8Array {
+  const out = new Uint8Array(pixels);
+  const cx = width * 0.85;
+  const cy = height * 0.1;
+  const radius = Math.hypot(width, height) * 0.55;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const distance = Math.hypot(x - cx, y - cy) / radius;
+      if (distance >= 1) continue;
+      const lift = (1 - distance) * (1 - distance) * 0.8;
+      for (let c = 0; c < 3; c++) {
+        const at = (y * width + x) * 3 + c;
+        out[at] = Math.round(out[at]! + (255 - out[at]!) * lift);
+      }
+    }
+  }
+  return out;
+}
+
+/** Horizontal shear (photographed at an angle), white-filled. */
+export function skewPixels(
+  pixels: Uint8Array,
+  width: number,
+  height: number,
+): Uint8Array {
+  const out = new Uint8Array(width * height * 3).fill(255);
+  const shear = 0.06;
+  for (let y = 0; y < height; y++) {
+    const shift = Math.round((y - height / 2) * shear);
+    for (let x = 0; x < width; x++) {
+      const sx = x - shift;
+      if (sx < 0 || sx >= width) continue;
+      out.set(pixels.subarray((y * width + sx) * 3, (y * width + sx) * 3 + 3), (y * width + x) * 3);
+    }
+  }
+  return out;
+}
+
+export function applyDegrade(
+  pixels: Uint8Array,
+  width: number,
+  height: number,
+  spec: DegradeSpec,
+): Uint8Array {
+  let out = pixels;
+  if (spec.blur) out = blurPixels(out, width, height);
+  if (spec.glare) out = glarePixels(out, width, height);
+  if (spec.skew) out = skewPixels(out, width, height);
+  return out;
+}
+
+/** Deterministic 1-2 degradations per hard form, rotating by seed. */
+export function hardDegradeSpec(seed: number): DegradeSpec {
+  const ops: Array<"blur" | "glare" | "skew"> = ["blur", "glare", "skew"];
+  const rotated = ops.map((_, i) => ops[(i + seed) % ops.length]!);
+  const count = seed % 2 === 0 ? 2 : 1;
+  const spec: DegradeSpec = {};
+  for (const op of rotated.slice(0, count)) spec[op] = true;
+  return spec;
+}
+
 const MARGIN = 48;
 const MAX_CHARS = 34;
 
@@ -120,7 +235,7 @@ function clip(value: string): string {
   return value.length > MAX_CHARS ? value.slice(0, MAX_CHARS) : value;
 }
 
-export function renderPage(page: DocPage, handRng?: Rng): Uint8Array {
+export function renderPage(page: DocPage, handRng?: Rng, degrade?: DegradeSpec): Uint8Array {
   const canvas = new Canvas(PAGE_WIDTH, PAGE_HEIGHT);
   canvas.rect(0, 0, PAGE_WIDTH, PAGE_HEIGHT, WHITE);
   canvas.rect(MARGIN - 8, MARGIN - 8, PAGE_WIDTH - 2 * MARGIN + 16, 6, BLACK);
@@ -163,7 +278,11 @@ export function renderPage(page: DocPage, handRng?: Rng): Uint8Array {
 
   canvas.rect(MARGIN, PAGE_HEIGHT - MARGIN - 60, PAGE_WIDTH - 2 * MARGIN, 3, BLACK);
   canvas.text(clip(page.footer), MARGIN + 12, PAGE_HEIGHT - MARGIN - 40, 2, GRAY);
-  return canvas.png();
+  const pixels =
+    degrade === undefined
+      ? canvas.pixels
+      : applyDegrade(canvas.pixels, PAGE_WIDTH, PAGE_HEIGHT, degrade);
+  return encodePng(PAGE_WIDTH, PAGE_HEIGHT, pixels);
 }
 
 export function bolPage(form: SyntheticForm, bol: Bol): DocPage {
@@ -263,14 +382,14 @@ export interface FormImages {
   label: Uint8Array;
 }
 
-export function renderForm(form: SyntheticForm): FormImages {
+export function renderForm(form: SyntheticForm, degrade?: DegradeSpec): FormImages {
   const handRng = createRng(form.seed * 31 + 7);
   return {
-    bol: renderPage(bolPage(form, form.bol)),
-    awb: renderPage(awbPage(form, form.awb)),
-    invoice: renderPage(invoicePage(form, form.invoice)),
-    packing: renderPage(packingPage(form, form.packing)),
-    pod: renderPage(podPage(form, form.pod), handRng),
-    label: renderPage(labelPage(form, form.label)),
+    bol: renderPage(bolPage(form, form.bol), undefined, degrade),
+    awb: renderPage(awbPage(form, form.awb), undefined, degrade),
+    invoice: renderPage(invoicePage(form, form.invoice), undefined, degrade),
+    packing: renderPage(packingPage(form, form.packing), undefined, degrade),
+    pod: renderPage(podPage(form, form.pod), handRng, degrade),
+    label: renderPage(labelPage(form, form.label), undefined, degrade),
   };
 }
