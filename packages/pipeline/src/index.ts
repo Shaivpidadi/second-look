@@ -1,5 +1,6 @@
 export { appendAudit } from "./audit.ts";
 export { draftClaim, type ClaimDraftInput } from "./claim.ts";
+export { checkCrossDoc, type CrossDocOptions } from "./crossdoc.ts";
 export {
   localPass,
   type GlimmerPassInput,
