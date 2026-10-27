@@ -1,26 +1,18 @@
 import type { Metadata } from "next";
+import { GeistMono } from "geist/font/mono";
+import { GeistSans } from "geist/font/sans";
+import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Second Look receiving form",
+  title: "Second Look — the co-signer that reads the paperwork",
+  description:
+    "Glasses watch the paper, a screen reader watches the typed values, and Second Look blocks the mistake before submit.",
 };
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
-      <body
-        style={{
-          fontFamily: "system-ui, -apple-system, sans-serif",
-          margin: 0,
-          color: "#111",
-          background: "#fff",
-        }}
-      >
-        {children}
-      </body>
+    <html lang="en" className={`${GeistSans.variable} ${GeistMono.variable}`}>
+      <body className="bg-void font-sans text-ink antialiased">{children}</body>
     </html>
   );
 }
