@@ -1,6 +1,10 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { evaluateSubmission, evaluateTieredSubmission } from "./gate.ts";
+import {
+  evaluatePartialSubmission,
+  evaluateSubmission,
+  evaluateTieredSubmission,
+} from "./gate.ts";
 
 const VALID = {
   "awb.awbNumber": "02027342210",
@@ -141,5 +145,38 @@ describe("evaluateTieredSubmission", () => {
       "pod.exceptionNote": "seal intact",
     });
     assert.equal(result.claim, null);
+  });
+});
+
+describe("evaluatePartialSubmission", () => {
+  it("allows empty and partially typed values", () => {
+    assert.equal(evaluatePartialSubmission({}).decision, "ALLOW");
+    assert.equal(
+      evaluatePartialSubmission({ "awb.awbNumber": "02027342210" }).decision,
+      "ALLOW",
+    );
+    assert.equal(
+      evaluatePartialSubmission({ "bol.cartons": "120" }).decision,
+      "ALLOW",
+    );
+  });
+
+  it("blocks a mistyped check digit as it is typed", () => {
+    const result = evaluatePartialSubmission({ "awb.awbNumber": "02027342211" });
+    assert.equal(result.decision, "BLOCK");
+    assert.equal(result.verdict.state, "blocked");
+    assert.equal(result.failures[0]?.fix, "02027342210");
+  });
+
+  it("blocks a count mismatch only when both counts are typed", () => {
+    const one = evaluatePartialSubmission({ "pod.receivedCartons": "118" });
+    assert.equal(one.decision, "ALLOW");
+    const both = evaluatePartialSubmission({
+      "bol.cartons": "120",
+      "pod.receivedCartons": "118",
+    });
+    assert.equal(both.decision, "BLOCK");
+    assert.equal(both.failures[0]?.rule, "count_mismatch");
+    assert.equal(both.failures[0]?.fix, "120");
   });
 });

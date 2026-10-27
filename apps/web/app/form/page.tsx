@@ -1,6 +1,7 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { LiveVerdictTracker, type LiveVerdictMessage } from "../../lib/live-verdict";
 
 interface Field {
   id: string;
@@ -69,7 +70,29 @@ export default function ReceivingForm() {
   const [streamed, setStreamed] = useState(0);
   const [result, setResult] = useState<SubmitResult | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [live, setLive] = useState<LiveVerdictMessage | null>(null);
   const timers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+
+  useEffect(() => {
+    const tracker = new LiveVerdictTracker({ debounceMs: 150, onVerdict: setLive });
+    const source = new EventSource(
+      `/api/verdicts?sessionId=${encodeURIComponent(sessionId)}`,
+    );
+    source.onmessage = (event: MessageEvent) => {
+      try {
+        const data = JSON.parse(event.data as string) as Partial<LiveVerdictMessage>;
+        if (typeof data.seq === "number") {
+          tracker.handle(data as LiveVerdictMessage);
+        }
+      } catch {
+        // Ignore malformed pushes; the next verdict replaces them.
+      }
+    };
+    return () => {
+      source.close();
+      tracker.dispose();
+    };
+  }, [sessionId]);
 
   function streamEvent(fieldId: string, value: string) {
     clearTimeout(timers.current[fieldId]);
@@ -168,6 +191,41 @@ export default function ReceivingForm() {
           watch this session on the dashboard
         </a>
       </p>
+
+      {live && live.decision === "BLOCK" && (
+        <section
+          aria-live="polite"
+          style={{
+            marginTop: 16,
+            padding: 16,
+            border: "2px solid #9a6700",
+            borderRadius: 4,
+          }}
+        >
+          <h2 style={{ margin: "0 0 8px" }}>
+            Live: blocked as typed ({live.state ?? "mismatch"})
+          </h2>
+          <ul style={{ margin: 0, paddingLeft: 20 }}>
+            {live.failures.map((f) => (
+              <li key={`${f.fieldId}-${f.rule}`} style={{ marginBottom: 8 }}>
+                <strong>{f.fieldId}</strong> [{f.rule}]: {f.message}
+                {f.fix !== undefined && (
+                  <div style={{ marginTop: 4 }}>
+                    Proposed fix: <code>{f.fix}</code>{" "}
+                    <button
+                      type="button"
+                      onClick={() => applyFix(f.fieldId, f.fix as string)}
+                      style={{ cursor: "pointer" }}
+                    >
+                      Apply fix
+                    </button>
+                  </div>
+                )}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       {result && (
         <section

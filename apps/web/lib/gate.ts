@@ -69,6 +69,35 @@ function fixSscc(raw: string): string | undefined {
   return `${firstSeventeen}${computeGs1CheckDigit(firstSeventeen)}`;
 }
 
+type DigitValidator = (raw: string) => { valid: boolean; error?: string };
+
+const DIGIT_FIELDS: Array<{
+  id: string;
+  validate: DigitValidator;
+  fix: (raw: string) => string | undefined;
+}> = [
+  { id: "awb.awbNumber", validate: validateAwb, fix: fixAwb },
+  { id: "bol.containerNumber", validate: validateContainer, fix: fixContainer },
+  { id: "label.sscc", validate: validateSscc, fix: fixSscc },
+];
+
+/** Validate one check-digit field; null when it passes. */
+function digitFailure(fieldId: string, raw: string): GateFailure | null {
+  const spec = DIGIT_FIELDS.find((d) => d.id === fieldId);
+  if (!spec) return null;
+  const result = spec.validate(raw);
+  if (result.valid) return null;
+  const rule = result.error ?? "unknown";
+  const failure: GateFailure = {
+    fieldId,
+    rule,
+    message: MESSAGES[rule] ?? rule,
+  };
+  const fix = spec.fix(raw);
+  if (fix !== undefined) failure.fix = fix;
+  return failure;
+}
+
 /**
  * Submit gate. Runs deterministic validators before any model call and
  * blocks on any failure: bad check digits or a short/over receiving count.
@@ -81,36 +110,12 @@ export function evaluateSubmission(
   const checks: FieldCheck[] = [];
   const failures: GateFailure[] = [];
 
-  const checkDigit = (
-    fieldId: string,
-    raw: string,
-    result: { valid: boolean; error?: string },
-    fix?: string,
-  ) => {
-    checks.push({ fieldId, kind: "check_digit", passed: result.valid });
-    if (!result.valid) {
-      const rule = result.error ?? "unknown";
-      const failure: GateFailure = {
-        fieldId,
-        rule,
-        message: MESSAGES[rule] ?? rule,
-      };
-      if (fix !== undefined) failure.fix = fix;
-      failures.push(failure);
-    }
-  };
-
-  const awbRaw = values["awb.awbNumber"] ?? "";
-  checkDigit("awb.awbNumber", awbRaw, validateAwb(awbRaw), fixAwb(awbRaw));
-  const containerRaw = values["bol.containerNumber"] ?? "";
-  checkDigit(
-    "bol.containerNumber",
-    containerRaw,
-    validateContainer(containerRaw),
-    fixContainer(containerRaw),
-  );
-  const ssccRaw = values["label.sscc"] ?? "";
-  checkDigit("label.sscc", ssccRaw, validateSscc(ssccRaw), fixSscc(ssccRaw));
+  for (const spec of DIGIT_FIELDS) {
+    const raw = values[spec.id] ?? "";
+    const failure = digitFailure(spec.id, raw);
+    checks.push({ fieldId: spec.id, kind: "check_digit", passed: failure === null });
+    if (failure) failures.push(failure);
+  }
 
   const shipped = Number(values["bol.cartons"]);
   const received = Number(values["pod.receivedCartons"]);
@@ -137,6 +142,58 @@ export function evaluateSubmission(
       failure.fix = String(shipped);
     }
     failures.push(failure);
+  }
+
+  const verdict = reduceVerdict(checks);
+  return {
+    decision: failures.length > 0 ? "BLOCK" : "ALLOW",
+    verdict,
+    failures,
+  };
+}
+
+/**
+ * Live verdict over partially typed values. Unlike the submit gate, fields
+ * that are still empty produce no checks at all, so typing never blocks on
+ * values that were simply never entered. Only judged fields can fail.
+ */
+export function evaluatePartialSubmission(
+  values: Record<string, string>,
+): GateResult {
+  const checks: FieldCheck[] = [];
+  const failures: GateFailure[] = [];
+
+  for (const spec of DIGIT_FIELDS) {
+    const raw = values[spec.id];
+    if (raw === undefined || raw === "") continue;
+    const failure = digitFailure(spec.id, raw);
+    checks.push({ fieldId: spec.id, kind: "check_digit", passed: failure === null });
+    if (failure) failures.push(failure);
+  }
+
+  const shippedRaw = values["bol.cartons"];
+  const receivedRaw = values["pod.receivedCartons"];
+  if (shippedRaw !== undefined && shippedRaw !== "" && receivedRaw !== undefined && receivedRaw !== "") {
+    const shipped = Number(shippedRaw);
+    const received = Number(receivedRaw);
+    const countsOk =
+      Number.isInteger(shipped) &&
+      Number.isInteger(received) &&
+      shipped >= 0 &&
+      received >= 0 &&
+      received === shipped;
+    checks.push({ fieldId: "pod.receivedCartons", kind: "cross_doc", passed: countsOk });
+    if (!countsOk) {
+      const failure: GateFailure = {
+        fieldId: "pod.receivedCartons",
+        rule: "count_mismatch",
+        message: `Received ${receivedRaw} vs shipped ${shippedRaw} cartons.`,
+      };
+      if (Number.isInteger(shipped) && shipped >= 0) {
+        failure.fix = String(shipped);
+      }
+      failures.push(failure);
+    }
   }
 
   const verdict = reduceVerdict(checks);
