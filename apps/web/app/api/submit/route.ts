@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { logAuditEntry } from "../../../lib/audit-store";
+import { storeClaimDraft } from "../../../lib/claim-store";
 import { evaluateTieredSubmission } from "../../../lib/gate";
 
 interface SubmitBody {
@@ -41,6 +42,7 @@ export async function POST(request: Request) {
       }
     }
     if (result.claim) {
+      storeClaimDraft(body.sessionId, result.claim);
       await logAuditEntry({
         ts,
         sessionId: body.sessionId,
