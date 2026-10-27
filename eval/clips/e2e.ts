@@ -6,15 +6,21 @@ import {
   appendAudit,
   checkCrossDoc,
   checkDigitChecks,
+  createPipelineAdapters,
   draftClaim,
   exportAuditCsv,
   exportAuditMarkdown,
   fieldMatchChecks,
+  getCallStats,
+  loadDotEnv,
   mentionsDamage,
   readSessionAudit,
   reduceVerdict,
+  resolveModelMode,
   StubSamAdapter,
   type AuditEntry,
+  type ModelMode,
+  type PipelineAdapters,
   type SessionState,
 } from "@second-look/pipeline";
 import { readSidecar, runClipPath, sampleFrames } from "./ingest.ts";
@@ -71,13 +77,20 @@ function auditEntry(
   };
 }
 
-async function checkSwappedAwb(clipsDir: string): Promise<{ outcome: CheckOutcome; entry: AuditEntry }> {
+export interface E2EOptions {
+  adapters?: PipelineAdapters;
+}
+
+async function checkSwappedAwb(
+  clipsDir: string,
+  options: E2EOptions,
+): Promise<{ outcome: CheckOutcome; entry: AuditEntry }> {
   const clip = join(clipsDir, "clip-awb.mp4");
   const sidecar = await readSidecar(clip);
   const paper = sidecar.groundTruth.paperValues;
   const typedAwb = swappedAwb(paper["awb.awbNumber"]!);
   const typed = { ...paper, "awb.awbNumber": typedAwb };
-  const run = await runClipPath(clip, typed, { fps: E2E_FPS });
+  const run = await runClipPath(clip, typed, { fps: E2E_FPS, ...options.adapters });
   const failures = run.frames[0]!.tiered.verdict.failures;
   const fixes = run.frames[0]!.tiered.spark?.proposedFixes ?? [];
   const fix = fixes.find((f) => f.fieldId === "awb.awbNumber");
@@ -106,7 +119,10 @@ async function checkSwappedAwb(clipsDir: string): Promise<{ outcome: CheckOutcom
   };
 }
 
-async function checkModelsOff(clipsDir: string): Promise<{ outcome: CheckOutcome; entry: AuditEntry }> {
+async function checkModelsOff(
+  clipsDir: string,
+  _options?: E2EOptions,
+): Promise<{ outcome: CheckOutcome; entry: AuditEntry }> {
   // Models off: frames still sample and SAM still localizes (stub boxes),
   // but no Glimmer pass and no Spark call run. Validators decide alone.
   const started = performance.now();
@@ -154,11 +170,14 @@ async function checkModelsOff(clipsDir: string): Promise<{ outcome: CheckOutcome
   };
 }
 
-async function checkQtyGap(clipsDir: string): Promise<{ outcome: CheckOutcome; entry: AuditEntry }> {
+async function checkQtyGap(
+  clipsDir: string,
+  options: E2EOptions,
+): Promise<{ outcome: CheckOutcome; entry: AuditEntry }> {
   const clip = join(clipsDir, "clip-pod.mp4");
   const sidecar = await readSidecar(clip);
   const paper = sidecar.groundTruth.paperValues;
-  const run = await runClipPath(clip, { ...paper }, { fps: E2E_FPS });
+  const run = await runClipPath(clip, { ...paper }, { fps: E2E_FPS, ...options.adapters });
   const failures = run.frames[0]!.tiered.verdict.failures;
   const pass =
     run.verdict === "mismatch" &&
@@ -185,12 +204,15 @@ async function checkQtyGap(clipsDir: string): Promise<{ outcome: CheckOutcome; e
   };
 }
 
-async function checkClaimDraft(clipsDir: string): Promise<{ outcome: CheckOutcome; entry: AuditEntry }> {
+async function checkClaimDraft(
+  clipsDir: string,
+  options: E2EOptions,
+): Promise<{ outcome: CheckOutcome; entry: AuditEntry }> {
   const started = performance.now();
   const clip = join(clipsDir, "clip-pod.mp4");
   const sidecar = await readSidecar(clip);
   const paper = sidecar.groundTruth.paperValues;
-  const run = await runClipPath(clip, { ...paper }, { fps: E2E_FPS });
+  const run = await runClipPath(clip, { ...paper }, { fps: E2E_FPS, ...options.adapters });
   const note = paper["pod.exceptionNote"]!;
   const draft = mentionsDamage(note)
     ? await draftClaim({
@@ -220,7 +242,7 @@ async function checkClaimDraft(clipsDir: string): Promise<{ outcome: CheckOutcom
   };
 }
 
-export async function runE2E(clipsDir: string): Promise<CheckOutcome[]> {
+export async function runE2E(clipsDir: string, options: E2EOptions = {}): Promise<CheckOutcome[]> {
   for (const name of ["clip-awb.mp4", "clip-pod.mp4"]) {
     try {
       await readSidecar(join(clipsDir, name));
@@ -235,7 +257,7 @@ export async function runE2E(clipsDir: string): Promise<CheckOutcome[]> {
   const checks = [checkSwappedAwb, checkModelsOff, checkQtyGap, checkClaimDraft];
   const outcomes: CheckOutcome[] = [];
   for (const check of checks) {
-    const { outcome, entry } = await check(clipsDir);
+    const { outcome, entry } = await check(clipsDir, options);
     await appendAudit(entry, { dir: clipsDir });
     outcomes.push(outcome);
   }
@@ -252,10 +274,20 @@ function argValue(args: string[], name: string): string | undefined {
 
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
+  loadDotEnv();
   const clipsDir =
     argValue(args, "--clips") ?? new URL("../../clips", import.meta.url).pathname;
+  const flag = argValue(args, "--models");
+  if (flag !== undefined && flag !== "stub" && flag !== "real") {
+    throw new Error(`e2e: --models must be "stub" or "real", got ${JSON.stringify(flag)}`);
+  }
+  const mode: ModelMode = flag ?? resolveModelMode();
+  const adapters = createPipelineAdapters(mode);
   console.log(`${PLACEHOLDER_NOTE}\n`);
-  const outcomes = await runE2E(clipsDir);
+  console.log(
+    `models: ${mode} (sam ${adapters.sam.name}, glimmer ${adapters.glimmer.name}, spark ${adapters.spark.name})\n`,
+  );
+  const outcomes = await runE2E(clipsDir, { adapters });
   let failed = 0;
   for (const outcome of outcomes) {
     const status = outcome.pass ? "PASS" : "FAIL";
@@ -268,6 +300,13 @@ async function main(): Promise<void> {
     );
   }
   console.log(`\naudit: audit-${E2E_SESSION}.jsonl/.md/.csv in ${clipsDir}`);
+  const stats = getCallStats();
+  if (stats.httpCalls > 0) {
+    console.log(
+      `real model calls: ${stats.httpCalls} (retries ${stats.retriedCalls}, ` +
+        `tokens in/out ${stats.inputTokens}/${stats.outputTokens})`,
+    );
+  }
   if (failed > 0) {
     console.error(`${failed} check(s) failed`);
     process.exit(1);

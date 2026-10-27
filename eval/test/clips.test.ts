@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { buildForm, renderForm } from "@second-look/generator";
 import { validateAwb } from "@second-look/validators";
+import type { SparkAdapter, SparkEscalationOutput } from "@second-look/pipeline";
 import { runClipFrames, sampleFrames } from "../clips/ingest.ts";
 import { nominalBoxes } from "../clips/render.ts";
 import { ffmpegPath } from "../clips/render.ts";
@@ -82,6 +83,28 @@ describe("runClipFrames", () => {
     );
     const fixes = result.frames[0]!.tiered.spark?.proposedFixes ?? [];
     assert.ok(fixes.some((f) => f.fieldId === "awb.awbNumber" && f.paperValue === paper["awb.awbNumber"]));
+  });
+
+  it("threads caller-supplied adapters through every frame", async () => {
+    let escalations = 0;
+    const spark: SparkAdapter = {
+      name: "recording",
+      async escalate(): Promise<SparkEscalationOutput> {
+        escalations += 1;
+        return { explanation: "rec", proposedFixes: [], latencyMs: 1, costUsd: 0 };
+      },
+    };
+    const { form } = buildForm("clip-test", 42);
+    form.invoice.totalQty = form.packing.totalQty - 2;
+    const paper: Record<string, string> = {
+      "invoice.totalQty": String(form.invoice.totalQty),
+      "packing.totalQty": String(form.packing.totalQty),
+    };
+    const result = await runClipFrames(frames(2), paper, { ...paper }, nominalBoxes(), {
+      spark,
+    });
+    assert.equal(escalations, 2);
+    assert.equal(result.frames[0]!.tiered.modelCalls[1]?.adapter, "recording");
   });
 
   it("flags a paper invoice/packing quantity gap as mismatch", async () => {
