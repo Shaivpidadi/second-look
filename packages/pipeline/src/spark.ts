@@ -80,7 +80,11 @@ export interface RealSparkOptions {
   baseUrl?: string;
   model?: string;
   fetchImpl?: typeof fetch;
-  /** Responses cap name `max_output_tokens`; default 384 (covers reasoning). */
+  /**
+   * Responses cap name `max_output_tokens`; default 1024. Reasoning alone
+   * burns ~200 tokens even on low effort, so smaller caps return
+   * `incomplete` with no message item.
+   */
   maxOutputTokens?: number;
   /** Reasoning effort; default "low" (the API default "high" burns the cap). */
   reasoningEffort?: string;
@@ -237,7 +241,7 @@ export class RealSparkAdapter implements SparkAdapter {
       options.baseUrl ?? process.env.MODEL_API_BASE_URL ?? "https://api.meta.ai/v1";
     this.model = options.model ?? "muse-spark-1.3";
     this.fetchImpl = options.fetchImpl ?? fetch;
-    this.maxOutputTokens = options.maxOutputTokens ?? 384;
+    this.maxOutputTokens = options.maxOutputTokens ?? 1024;
     this.reasoningEffort = options.reasoningEffort ?? "low";
     this.temperature = options.temperature ?? 0;
     this.maxImages = options.maxImages ?? 1;

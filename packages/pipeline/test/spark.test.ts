@@ -65,7 +65,7 @@ describe("RealSparkAdapter verified shapes", () => {
     assert.equal(seen[0]?.url, "https://spark.test/v1/responses");
     const body = seen[0]?.body;
     assert.equal(body?.model, "muse-spark-1.3");
-    assert.equal(body?.max_output_tokens, 384);
+    assert.equal(body?.max_output_tokens, 1024);
     assert.deepEqual(body?.reasoning, { effort: "low" });
     const content = (
       (body?.input as Array<Record<string, unknown>>)[0] as Record<string, unknown>
