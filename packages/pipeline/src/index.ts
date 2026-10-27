@@ -6,6 +6,17 @@ export {
 } from "./audit.ts";
 export { checkDigitChecks, fieldMatchChecks } from "./checks.ts";
 export {
+  callBudgetLimit,
+  DEFAULT_CALL_BUDGET,
+  getCallStats,
+  postJson,
+  recordUsage,
+  resetCallStats,
+  type CallStats,
+  type PostJsonOptions,
+  type RetryOptions,
+} from "./http.ts";
+export {
   CLAIM_AMOUNT_PLACEHOLDER,
   draftClaim,
   draftClaimTemplate,
@@ -26,7 +37,7 @@ export {
   type GlimmerPassInput,
   type GlimmerPassOutput,
 } from "./glimmer.ts";
-export { requireModelApiKey } from "./key.ts";
+export { loadDotEnv, requireModelApiKey } from "./key.ts";
 export {
   assertSingleConcept,
   createSamAdapter,
