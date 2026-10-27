@@ -86,7 +86,10 @@ export interface RealSparkOptions {
    * `incomplete` with no message item.
    */
   maxOutputTokens?: number;
-  /** Reasoning effort; default "low" (the API default "high" burns the cap). */
+  /**
+   * Reasoning effort; default "minimal" ("low" still burns the whole cap
+   * on reasoning for long prompts; the API default "high" is worse).
+   */
   reasoningEffort?: string;
   /** Sampling temperature; default 0 for deterministic verdicts. */
   temperature?: number;
@@ -242,7 +245,7 @@ export class RealSparkAdapter implements SparkAdapter {
     this.model = options.model ?? "muse-spark-1.3";
     this.fetchImpl = options.fetchImpl ?? fetch;
     this.maxOutputTokens = options.maxOutputTokens ?? 1024;
-    this.reasoningEffort = options.reasoningEffort ?? "low";
+    this.reasoningEffort = options.reasoningEffort ?? "minimal";
     this.temperature = options.temperature ?? 0;
     this.maxImages = options.maxImages ?? 1;
     this.retry = options.retry;
@@ -262,7 +265,7 @@ export class RealSparkAdapter implements SparkAdapter {
       "Readings (paper vs typed):",
       ...readingLines,
       'Reply with ONLY a JSON object, no other text: {"explanation": "...", "flagged": true|false, "failures": [{"fieldId": "...", "kind": "field_match|check_digit|cross_doc", "detail": "..."}], "fixes": [{"fieldId": "...", "correctedValue": "..."}]}.',
-      "Set flagged=true when any reading differs paper-vs-typed, any check digit is invalid, or any cross-document values conflict. For each differing field, set correctedValue to the PAPER value.",
+      "Set flagged=true when any reading differs paper-vs-typed or any values conflict per the question. For each differing field, set correctedValue to the PAPER value.",
     ].join("\n");
     const content: Array<Record<string, unknown>> = [{ type: "input_text", text: prompt }];
     for (const crop of input.crops.slice(0, Math.max(0, this.maxImages))) {

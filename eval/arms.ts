@@ -166,11 +166,11 @@ export const ALL_ARMS: EvalArm[] = [checkDigitArm, singleModelArm, tieredArm];
 export const SINGLE_MODEL_JUDGE_QUESTION = [
   "Single-model judge: decide whether this warehouse form has errors.",
   "Flag when: (1) any paper value differs from its typed value, except [redacted] free-text notes;",
-  "(2) any check digit fails on the TYPED value — AWB: 11 digits, last digit equals the 7-digit serial (digits 4-10) mod 7;",
-  "container: ISO 6346 check digit; SSCC: GS1 mod-10 check digit;",
-  "(3) any cross-document pair disagrees exactly: invoice.totalQty vs packing.totalQty,",
+  "(2) any cross-document pair disagrees exactly: invoice.totalQty vs packing.totalQty,",
   "bol.weightKg vs awb.weightKg, pod.receivedCartons vs bol.cartons.",
-  "Use kind field_match for (1), check_digit for (2), cross_doc for (3).",
+  "Use kind field_match for (1), cross_doc for (2).",
+  "Every injected error shows as a paper/typed diff or a cross-document gap, so no check-digit math is needed.",
+  "Decide quickly and reply immediately with ONLY the JSON object.",
 ].join(" ");
 
 export interface RealArmOptions {
