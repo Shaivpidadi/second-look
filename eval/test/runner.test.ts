@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildForm } from "@second-look/generator";
 import { checkDigitArm, tieredArm, type EvalArm } from "../arms.ts";
-import { loadCorpus, runArm, runEval } from "../runner.ts";
+import { loadCorpus, runArm, runEval, selectableArms } from "../runner.ts";
 
 const offlineArm: EvalArm = {
   name: "offline",
@@ -72,5 +72,22 @@ describe("runner", () => {
     const result = await runArm(offlineArm, await loadCorpus(dir));
     assert.equal(result.available, false);
     assert.deepEqual(result.forms, []);
+  });
+
+  it("limits pilot runs to the first N forms", async () => {
+    const [result] = await runEval(dir, [checkDigitArm], { limit: 2 });
+    assert.equal(result?.forms.length, 2);
+    assert.deepEqual(
+      result?.forms.map((f) => f.formId),
+      ["form-0001", "form-0002"],
+    );
+    await assert.rejects(() => runEval(dir, [checkDigitArm], { limit: -1 }), /limit/);
+  });
+
+  it("selects real arms by name without changing the defaults", () => {
+    const names = selectableArms().map((arm) => arm.name);
+    assert.deepEqual(names.slice(0, 3), ["check-digit-only", "single-model", "tiered"]);
+    assert.ok(names.includes("single-model-real"));
+    assert.ok(names.includes("tiered-real"));
   });
 });

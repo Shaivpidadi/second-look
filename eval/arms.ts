@@ -2,6 +2,7 @@ import {
   checkCrossDoc,
   isFreeTextField,
   redactReadings,
+  RealSparkAdapter,
   runTieredPipeline,
   StubSparkAdapter,
 } from "@second-look/pipeline";
@@ -157,3 +158,77 @@ export const tieredArm: EvalArm = {
 };
 
 export const ALL_ARMS: EvalArm[] = [checkDigitArm, singleModelArm, tieredArm];
+
+/**
+ * One-shot judging rubric for the real single-model arm. Readings carry
+ * paper and typed values; the adapter appends the JSON reply contract.
+ */
+export const SINGLE_MODEL_JUDGE_QUESTION = [
+  "Single-model judge: decide whether this warehouse form has errors.",
+  "Flag when: (1) any paper value differs from its typed value, except [redacted] free-text notes;",
+  "(2) any check digit fails on the TYPED value — AWB: 11 digits, last digit equals the 7-digit serial (digits 4-10) mod 7;",
+  "container: ISO 6346 check digit; SSCC: GS1 mod-10 check digit;",
+  "(3) any cross-document pair disagrees exactly: invoice.totalQty vs packing.totalQty,",
+  "bol.weightKg vs awb.weightKg, pod.receivedCartons vs bol.cartons.",
+  "Use kind field_match for (1), check_digit for (2), cross_doc for (3).",
+].join(" ");
+
+export interface RealArmOptions {
+  fetchImpl?: typeof fetch;
+}
+
+/**
+ * Live-model arms, built after `.env` loads so `available` reflects the
+ * key. `single-model-real` judges each form from one Spark reply;
+ * `tiered-real` runs the deterministic tiered pipeline with a real Spark
+ * escalation (verdicts match the stub tiered arm; latency, tokens, and
+ * explanations are live). Both are `stubbed: false` and stay out of
+ * ALL_ARMS so default runs never touch the network.
+ */
+export function createRealArms(options: RealArmOptions = {}): EvalArm[] {
+  const available = Boolean(process.env.MODEL_API_KEY ?? process.env.META_API_KEY);
+  const singleModelReal: EvalArm = {
+    name: "single-model-real",
+    available,
+    stubbed: false,
+    async judge({ form }) {
+      const started = performance.now();
+      const spark = await new RealSparkAdapter({ fetchImpl: options.fetchImpl }).escalate({
+        readings: redactReadings(readingsFromForm(form)),
+        crops: [],
+        question: SINGLE_MODEL_JUDGE_QUESTION,
+      });
+      if (!spark.judgment) {
+        throw new Error(
+          `single-model-real: ${form.form.formId} returned no judgment (explanation: ${spark.explanation.slice(0, 160)})`,
+        );
+      }
+      return {
+        flagged: spark.judgment.flagged,
+        failures: spark.judgment.failures,
+        latencyMs: performance.now() - started,
+        costUsd: spark.costUsd,
+      };
+    },
+  };
+  const tieredReal: EvalArm = {
+    name: "tiered-real",
+    available,
+    stubbed: false,
+    async judge({ form }) {
+      const started = performance.now();
+      const tiered = await runTieredPipeline({
+        readings: readingsFromForm(form),
+        typedValues: form.typed,
+        spark: new RealSparkAdapter({ fetchImpl: options.fetchImpl }),
+      });
+      return {
+        flagged: tiered.verdict.state !== "clean",
+        failures: tiered.verdict.failures,
+        latencyMs: performance.now() - started,
+        costUsd: tiered.modelCalls.reduce((sum, call) => sum + call.costUsd, 0),
+      };
+    },
+  };
+  return [singleModelReal, tieredReal];
+}
