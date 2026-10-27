@@ -1,0 +1,169 @@
+import type { AwbDoc, Bol, Pod, SyntheticForm } from "./documents.ts";
+import { FONT_HEIGHT, FONT_WIDTH, glyphFor } from "./font.ts";
+import { encodePng } from "./png.ts";
+
+export const PAGE_WIDTH = 1000;
+export const PAGE_HEIGHT = 1400;
+
+type Color = [number, number, number];
+const WHITE: Color = [255, 255, 255];
+const BLACK: Color = [0, 0, 0];
+const GRAY: Color = [90, 90, 90];
+
+class Canvas {
+  pixels: Uint8Array;
+  width: number;
+  height: number;
+
+  constructor(width: number, height: number) {
+    this.width = width;
+    this.height = height;
+    this.pixels = new Uint8Array(width * height * 3).fill(255);
+  }
+
+  rect(x: number, y: number, w: number, h: number, [r, g, b]: Color): void {
+    for (let j = y; j < y + h; j++) {
+      if (j < 0 || j >= this.height) continue;
+      for (let i = x; i < x + w; i++) {
+        if (i < 0 || i >= this.width) continue;
+        const at = (j * this.width + i) * 3;
+        this.pixels[at] = r;
+        this.pixels[at + 1] = g;
+        this.pixels[at + 2] = b;
+      }
+    }
+  }
+
+  text(
+    value: string,
+    x: number,
+    y: number,
+    scale: number,
+    color: Color,
+  ): void {
+    let cx = x;
+    for (const ch of value.toUpperCase()) {
+      const rows = glyphFor(ch);
+      for (let gy = 0; gy < FONT_HEIGHT; gy++) {
+        for (let gx = 0; gx < FONT_WIDTH; gx++) {
+          if (rows[gy]![gx] === "#") {
+            this.rect(cx + gx * scale, y + gy * scale, scale, scale, color);
+          }
+        }
+      }
+      cx += (FONT_WIDTH + 1) * scale;
+    }
+  }
+
+  png(): Uint8Array {
+    return encodePng(this.width, this.height, this.pixels);
+  }
+}
+
+export interface DocPage {
+  title: string;
+  rows: Array<[string, string]>;
+  footer: string;
+}
+
+const MARGIN = 48;
+const MAX_CHARS = 34;
+
+function clip(value: string): string {
+  return value.length > MAX_CHARS ? value.slice(0, MAX_CHARS) : value;
+}
+
+export function renderPage(page: DocPage): Uint8Array {
+  const canvas = new Canvas(PAGE_WIDTH, PAGE_HEIGHT);
+  canvas.rect(0, 0, PAGE_WIDTH, PAGE_HEIGHT, WHITE);
+  canvas.rect(MARGIN - 8, MARGIN - 8, PAGE_WIDTH - 2 * MARGIN + 16, 6, BLACK);
+  canvas.rect(MARGIN - 8, MARGIN - 8, 6, PAGE_HEIGHT - 2 * MARGIN + 16, BLACK);
+  canvas.rect(
+    PAGE_WIDTH - MARGIN + 2,
+    MARGIN - 8,
+    6,
+    PAGE_HEIGHT - 2 * MARGIN + 16,
+    BLACK,
+  );
+  canvas.rect(
+    MARGIN - 8,
+    PAGE_HEIGHT - MARGIN + 2,
+    PAGE_WIDTH - 2 * MARGIN + 16,
+    6,
+    BLACK,
+  );
+
+  canvas.rect(MARGIN, MARGIN, PAGE_WIDTH - 2 * MARGIN, 120, BLACK);
+  canvas.text(page.title, MARGIN + 28, MARGIN + 38, 4, WHITE);
+
+  let y = MARGIN + 190;
+  for (const [label, value] of page.rows) {
+    canvas.text(label, MARGIN + 12, y, 2, GRAY);
+    canvas.text(clip(value), MARGIN + 12, y + 44, 4, BLACK);
+    y += 128;
+  }
+
+  canvas.rect(MARGIN, PAGE_HEIGHT - MARGIN - 60, PAGE_WIDTH - 2 * MARGIN, 3, BLACK);
+  canvas.text(clip(page.footer), MARGIN + 12, PAGE_HEIGHT - MARGIN - 40, 2, GRAY);
+  return canvas.png();
+}
+
+export function bolPage(form: SyntheticForm, bol: Bol): DocPage {
+  return {
+    title: "BILL OF LADING",
+    rows: [
+      ["BOL NUMBER", bol.bolNumber],
+      ["SHIPPER", bol.shipper],
+      ["CONSIGNEE", bol.consignee],
+      ["CONTAINER", bol.containerNumber],
+      ["SEAL", bol.sealNumber],
+      ["CARTONS", String(bol.cartons)],
+      ["WEIGHT KG", String(bol.weightKg)],
+      ["VESSEL", bol.vessel],
+    ],
+    footer: `FORM ${form.formId} SEED ${form.seed} SYNTHETIC - NO REAL DATA`,
+  };
+}
+
+export function awbPage(form: SyntheticForm, awb: AwbDoc): DocPage {
+  return {
+    title: "AIR WAYBILL",
+    rows: [
+      ["AWB NUMBER", awb.awbNumber],
+      ["ORIGIN", awb.origin],
+      ["DESTINATION", awb.destination],
+      ["PIECES", String(awb.pieces)],
+      ["WEIGHT KG", String(awb.weightKg)],
+    ],
+    footer: `FORM ${form.formId} SEED ${form.seed} SYNTHETIC - NO REAL DATA`,
+  };
+}
+
+export function podPage(form: SyntheticForm, pod: Pod): DocPage {
+  return {
+    title: "PROOF OF DELIVERY",
+    rows: [
+      ["POD NUMBER", pod.podNumber],
+      ["BOL REF", pod.bolRef],
+      ["RECEIVED CARTONS", String(pod.receivedCartons)],
+      ["EXCEPTION", pod.exceptionNote ?? "NONE"],
+      ["RECEIVER", pod.receiver],
+      ["DATE", pod.date],
+    ],
+    footer: `FORM ${form.formId} SEED ${form.seed} SYNTHETIC - NO REAL DATA`,
+  };
+}
+
+export interface FormImages {
+  bol: Uint8Array;
+  awb: Uint8Array;
+  pod: Uint8Array;
+}
+
+export function renderForm(form: SyntheticForm): FormImages {
+  return {
+    bol: renderPage(bolPage(form, form.bol)),
+    awb: renderPage(awbPage(form, form.awb)),
+    pod: renderPage(podPage(form, form.pod)),
+  };
+}
