@@ -18,7 +18,7 @@ export interface DraftClaimOptions {
 
 export const CLAIM_AMOUNT_PLACEHOLDER = "[AMOUNT TBD]";
 
-const QTY_UNITS = "cartons?|boxes?|units?|pieces?|pkgs?|packages?|pallets?|ctns?";
+const QTY_UNITS = "cartons?|box(?:es)?|units?|pieces?|pkgs?|packages?|pallets?|ctns?";
 
 /** Whether a POD exception note mentions damage. */
 export function mentionsDamage(note: string): boolean {
