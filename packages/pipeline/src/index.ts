@@ -4,6 +4,13 @@ export {
   readSessionAudit,
   type AuditStoreOptions,
 } from "./audit.ts";
+export {
+  changedReadings,
+  CropCache,
+  hashReadings,
+  VerdictCache,
+  type VerdictLookup,
+} from "./cache.ts";
 export { checkDigitChecks, fieldMatchChecks } from "./checks.ts";
 export {
   analyzeFrames,

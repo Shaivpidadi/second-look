@@ -1,3 +1,4 @@
+import type { VerdictCache } from "./cache.ts";
 import { checkDigitChecks, fieldMatchChecks } from "./checks.ts";
 import { checkCrossDoc, type CrossDocOptions } from "./crossdoc.ts";
 import {
@@ -40,6 +41,10 @@ export interface TieredPipelineInput {
   glimmer?: GlimmerAdapter;
   spark?: SparkAdapter;
   crossDocOptions?: CrossDocOptions;
+  /** Reuse stored escalations for identical readings; skips repeat calls. */
+  verdictCache?: VerdictCache;
+  /** Per-call Spark `max_output_tokens` override for this escalation. */
+  sparkMaxOutputTokens?: number;
 }
 
 export interface TieredPipelineResult {
@@ -49,6 +54,8 @@ export interface TieredPipelineResult {
   /** Null when nothing escalated: Glimmer agreed and no conflict. */
   spark: SparkEscalationOutput | null;
   escalated: boolean;
+  /** True when the Spark output came from the verdict cache, not a call. */
+  sparkCached: boolean;
   escalationReasons: string[];
   modelCalls: ModelCall[];
 }
@@ -121,16 +128,25 @@ export async function runTieredPipeline(
   if (hasHandwriting(input.readings)) escalationReasons.push("handwriting");
 
   let sparkOut: SparkEscalationOutput | null = null;
+  let sparkCached = false;
   if (escalationReasons.length > 0) {
-    sparkOut = await spark.escalate({
-      readings: glimmerOut.redacted,
-      crops,
-      question: escalationQuestion(escalationReasons, crossDocFailures),
-    });
+    const cached = input.verdictCache?.lookup(glimmerOut.redacted, escalationReasons);
+    if (cached?.hit) {
+      sparkOut = cached.spark;
+      sparkCached = true;
+    } else {
+      sparkOut = await spark.escalate({
+        readings: cached ? cached.send : glimmerOut.redacted,
+        crops,
+        question: escalationQuestion(escalationReasons, crossDocFailures),
+        maxOutputTokens: input.sparkMaxOutputTokens,
+      });
+      input.verdictCache?.store(glimmerOut.redacted, escalationReasons, sparkOut);
+    }
     modelCalls.push({
       model: "spark",
       adapter: spark.name,
-      outcome: "escalation",
+      outcome: sparkCached ? "escalation (cached)" : "escalation",
       latencyMs: sparkOut.latencyMs,
       costUsd: sparkOut.costUsd,
     });
@@ -142,6 +158,7 @@ export async function runTieredPipeline(
     glimmer: glimmerOut,
     spark: sparkOut,
     escalated: sparkOut !== null,
+    sparkCached,
     escalationReasons,
     modelCalls,
   };

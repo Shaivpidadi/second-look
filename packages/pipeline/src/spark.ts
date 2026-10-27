@@ -7,6 +7,8 @@ export interface SparkEscalationInput {
   readings: FieldReading[];
   crops: Crop[];
   question: string;
+  /** Per-call `max_output_tokens` override; defaults to the adapter's cap. */
+  maxOutputTokens?: number;
 }
 
 export interface SparkUsage {
@@ -278,7 +280,7 @@ export class RealSparkAdapter implements SparkAdapter {
       body: {
         model: this.model,
         input: [{ role: "user", content }],
-        max_output_tokens: this.maxOutputTokens,
+        max_output_tokens: input.maxOutputTokens ?? this.maxOutputTokens,
         reasoning: { effort: this.reasoningEffort },
         temperature: this.temperature,
       },
