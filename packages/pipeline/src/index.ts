@@ -6,6 +6,18 @@ export {
 } from "./audit.ts";
 export { checkDigitChecks, fieldMatchChecks } from "./checks.ts";
 export {
+  analyzeFrames,
+  decodePngToGray,
+  dhash64,
+  frameHash,
+  hammingDistance,
+  selectKeyframes,
+  sharpness,
+  type DecodedGray,
+  type FrameAnalysis,
+  type KeyframeOptions,
+} from "./frames.ts";
+export {
   callBudgetLimit,
   DEFAULT_CALL_BUDGET,
   getCallStats,
