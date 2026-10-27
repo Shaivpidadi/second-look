@@ -52,7 +52,9 @@ export type VerdictLookup =
  * readings and reasons reuses the stored output with zero marginal cost
  * and latency; a repeat with edits sends only the changed fields when the
  * only reason is a local-pass disagreement (cross-doc and handwriting
- * escalations keep full context).
+ * escalations keep full context). Text-only and image-grounded
+ * escalations cache under separate keys so the fast path never serves a
+ * text verdict where the refined path needs images, or vice versa.
  */
 export class VerdictCache {
   private readonly entries = new Map<string, VerdictEntry>();
@@ -68,8 +70,8 @@ export class VerdictCache {
     return this.entries.size;
   }
 
-  lookup(readings: FieldReading[], reasons: string[]): VerdictLookup {
-    const key = hashReadings(readings);
+  lookup(readings: FieldReading[], reasons: string[], images = false): VerdictLookup {
+    const key = `${hashReadings(readings)}:${images ? "img" : "txt"}`;
     const entry = this.entries.get(key);
     if (entry && sameReasons(entry.reasons, reasons)) {
       this.hits += 1;
@@ -91,8 +93,13 @@ export class VerdictCache {
     return { hit: false, send: readings.map((r) => ({ ...r })) };
   }
 
-  store(readings: FieldReading[], reasons: string[], spark: SparkEscalationOutput): void {
-    const key = hashReadings(readings);
+  store(
+    readings: FieldReading[],
+    reasons: string[],
+    spark: SparkEscalationOutput,
+    images = false,
+  ): void {
+    const key = `${hashReadings(readings)}:${images ? "img" : "txt"}`;
     if (!this.entries.has(key) && this.entries.size >= this.maxEntries) {
       const oldest = this.entries.keys().next().value;
       if (oldest !== undefined) this.entries.delete(oldest);

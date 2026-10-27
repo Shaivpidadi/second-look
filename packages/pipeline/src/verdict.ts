@@ -130,7 +130,8 @@ export async function runTieredPipeline(
   let sparkOut: SparkEscalationOutput | null = null;
   let sparkCached = false;
   if (escalationReasons.length > 0) {
-    const cached = input.verdictCache?.lookup(glimmerOut.redacted, escalationReasons);
+    const hasImages = crops.length > 0;
+    const cached = input.verdictCache?.lookup(glimmerOut.redacted, escalationReasons, hasImages);
     if (cached?.hit) {
       sparkOut = cached.spark;
       sparkCached = true;
@@ -141,7 +142,7 @@ export async function runTieredPipeline(
         question: escalationQuestion(escalationReasons, crossDocFailures),
         maxOutputTokens: input.sparkMaxOutputTokens,
       });
-      input.verdictCache?.store(glimmerOut.redacted, escalationReasons, sparkOut);
+      input.verdictCache?.store(glimmerOut.redacted, escalationReasons, sparkOut, hasImages);
     }
     modelCalls.push({
       model: "spark",

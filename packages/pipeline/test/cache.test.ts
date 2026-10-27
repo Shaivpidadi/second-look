@@ -87,6 +87,13 @@ describe("VerdictCache", () => {
     if (!miss.hit) assert.deepEqual(miss.send, [edited]);
   });
 
+  it("keeps text-only and image-grounded escalations apart", () => {
+    const cache = new VerdictCache();
+    cache.store([AWB], ["glimmer_disagree"], sparkOut, false);
+    assert.equal(cache.lookup([AWB_SAME], ["glimmer_disagree"], true).hit, false);
+    assert.equal(cache.lookup([AWB_SAME], ["glimmer_disagree"], false).hit, true);
+  });
+
   it("sends full readings for cross-doc and handwriting repeats", () => {
     const cache = new VerdictCache();
     cache.store([AWB, QTY], ["cross_doc_conflict"], sparkOut);
@@ -140,6 +147,25 @@ describe("runTieredPipeline with a verdict cache", () => {
     assert.equal(second.sparkCached, true);
     assert.equal(second.modelCalls[1]?.outcome, "escalation (cached)");
     assert.equal(second.modelCalls[1]?.latencyMs, 0);
+  });
+
+  it("escalates text and image paths separately under one cache", async () => {
+    const counter = { calls: 0, sent: [] as FieldReading[][] };
+    const cache = new VerdictCache();
+    const base = {
+      readings: [AWB],
+      typedValues: { "awb.awbNumber": "02027342211" },
+      spark: countingSpark(counter),
+      verdictCache: cache,
+    };
+    await runTieredPipeline({ ...base, crops: [] });
+    await runTieredPipeline({
+      ...base,
+      crops: [{ box: { x: 0, y: 0, width: 1, height: 1 }, image: new Uint8Array([1]) }],
+    });
+    await runTieredPipeline({ ...base, crops: [] });
+    assert.equal(counter.calls, 2);
+    assert.equal(cache.hits, 1);
   });
 
   it("sends only changed fields on the second escalation", async () => {
