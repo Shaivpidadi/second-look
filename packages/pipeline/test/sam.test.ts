@@ -6,6 +6,7 @@ import {
   defaultDocumentBox,
   extractBoxes,
   RealSamAdapter,
+  samCostUsd,
   StubSamAdapter,
 } from "../src/index.ts";
 
@@ -119,6 +120,34 @@ describe("extractBoxes", () => {
     assert.deepEqual(extractBoxes({ output_text: "no boxes here" }, 720, 1280), []);
     assert.deepEqual(extractBoxes(null, 720, 1280), []);
   });
+
+  it("reads the official SAM token grammar with inclusive corners", () => {
+    const payload = {
+      output: [
+        {
+          content: [
+            {
+              text: "<0f>0<|box;x1=181;y1=365;x2=556;y2=486;w=1516;h=1600|><|mask;x=0;y=0;data=122,376,~...|>",
+            },
+          ],
+        },
+      ],
+    };
+    // Inclusive corners: width covers x1..x2, scaled to frame pixels.
+    assert.deepEqual(extractBoxes(payload, 1516, 1600), [
+      { x: 181, y: 365, width: 376, height: 122 },
+    ]);
+  });
+
+  it("reads token boxes with confidence and rescaled frames", () => {
+    const payload = {
+      output_text:
+        "<0f>1<|box;x1=444;y1=625;x2=679;y2=850;w=1800;h=1200;c=0.96|><|mask;x=0;y=0;c=0.96;data=226,236,!...|>",
+    };
+    assert.deepEqual(extractBoxes(payload, 900, 600), [
+      { x: 222, y: 313, width: 118, height: 113 },
+    ]);
+  });
 });
 
 describe("RealSamAdapter", () => {
@@ -164,7 +193,12 @@ describe("RealSamAdapter", () => {
       assert.equal(seen.length, 1);
       assert.equal(seen[0]?.url, "https://sam.test/v1/responses");
       assert.equal(seen[0]?.body.model, "sam-3.1");
-      assert.match(JSON.stringify(seen[0]?.body), /shipping document/);
+      const input = seen[0]?.body.input as Array<Record<string, unknown>>;
+      assert.equal(input[0]?.type, "message");
+      const content = input[0]?.content as Array<Record<string, unknown>>;
+      // Bare noun phrase per the official docs, not an instruction.
+      assert.deepEqual(content[0], { type: "input_text", text: "shipping document" });
+      assert.equal(content[1]?.type, "input_image");
       assert.deepEqual(
         out.crops.map((c) => c.box),
         [{ x: 1, y: 2, width: 10, height: 20 }],
@@ -202,7 +236,7 @@ describe("RealSamAdapter", () => {
         concept: "shipping document",
       });
       assert.deepEqual(out.crops, []);
-      assert.equal(out.costUsd, 0);
+      assert.equal(out.costUsd, samCostUsd(1, 0));
     } finally {
       if (model !== undefined) process.env.MODEL_API_KEY = model;
       else delete process.env.MODEL_API_KEY;

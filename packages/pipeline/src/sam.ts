@@ -1,6 +1,7 @@
 import type { BoundingBox, Crop } from "./types.ts";
 import { postJson, recordUsage, type RetryOptions } from "./http.ts";
 import { requireModelApiKey } from "./key.ts";
+import { samCostUsd } from "./pricing.ts";
 
 export interface SamCropInput {
   /** Still frame bytes (JPEG/PNG) or one short-clip sample. */
@@ -138,6 +139,44 @@ function toBox(value: unknown): BoundingBox | null {
   return null;
 }
 
+/**
+ * Boxes from the official SAM token grammar
+ * (`<|box;x1=..;y1=..;x2=..;y2=..;w=..;h=..[;c=..]|>`), parsed by key so
+ * the optional confidence field reads the same. Coordinates are
+ * inclusive (`x2`/`y2` name the last pixel); collected as 0-1 fractions
+ * off the token's own `w`/`h`, scaled to frame pixels by `extractBoxes`.
+ */
+function collectSamTokenBoxes(text: string, into: BoundingBox[]): void {
+  for (const token of text.matchAll(/<\|box;([^|]*)\|>/g)) {
+    const fields = new Map<string, number>();
+    for (const part of token[1]!.split(";")) {
+      const eq = part.indexOf("=");
+      if (eq > 0) fields.set(part.slice(0, eq), Number(part.slice(eq + 1)));
+    }
+    const x1 = fields.get("x1");
+    const y1 = fields.get("y1");
+    const x2 = fields.get("x2");
+    const y2 = fields.get("y2");
+    const w = fields.get("w");
+    const h = fields.get("h");
+    if (
+      [x1, y1, x2, y2, w, h].some((n) => n === undefined || !Number.isFinite(n)) ||
+      w! <= 0 ||
+      h! <= 0 ||
+      x2! < x1! ||
+      y2! < y1!
+    ) {
+      continue;
+    }
+    into.push({
+      x: x1! / w!,
+      y: y1! / h!,
+      width: (x2! - x1! + 1) / w!,
+      height: (y2! - y1! + 1) / h!,
+    });
+  }
+}
+
 function collectBoxes(value: unknown, into: BoundingBox[]): void {
   if (value === null || value === undefined) return;
   const direct = toBox(value);
@@ -146,10 +185,11 @@ function collectBoxes(value: unknown, into: BoundingBox[]): void {
     return;
   }
   if (typeof value === "string") {
+    collectSamTokenBoxes(value, into);
     try {
       collectBoxes(JSON.parse(value) as unknown, into);
     } catch {
-      // Not JSON text; nothing to collect.
+      // Not JSON text; nothing more to collect.
     }
     return;
   }
@@ -202,33 +242,35 @@ export function extractBoxes(
   });
 }
 
-function extractSamUsage(payload: unknown): { inputTokens: number; outputTokens: number } {
-  if (
-    payload !== null &&
-    typeof payload === "object" &&
-    !Array.isArray(payload) &&
-    "usage" in payload
-  ) {
-    const usage = (payload as Record<string, unknown>).usage;
-    if (usage !== null && typeof usage === "object" && !Array.isArray(usage)) {
-      const record = usage as Record<string, unknown>;
-      return {
-        inputTokens: typeof record.input_tokens === "number" ? record.input_tokens : 0,
-        outputTokens: typeof record.output_tokens === "number" ? record.output_tokens : 0,
-      };
-    }
-  }
-  return { inputTokens: 0, outputTokens: 0 };
+function extractSamCounts(payload: unknown): {
+  inputTokens: number;
+  outputTokens: number;
+  images: number;
+  videoFrames: number;
+} {
+  const zero = { inputTokens: 0, outputTokens: 0, images: 0, videoFrames: 0 };
+  if (!isRecord(payload) || !isRecord(payload.usage)) return zero;
+  const usage = payload.usage;
+  const count = (key: string): number =>
+    typeof usage[key] === "number" ? (usage[key] as number) : 0;
+  return {
+    inputTokens: count("input_tokens"),
+    outputTokens: count("output_tokens"),
+    images: count("images_processed"),
+    videoFrames: count("video_frames_processed"),
+  };
 }
 
 /**
  * Real adapter: reads MODEL_API_KEY (alias META_API_KEY) from the
  * environment at call time and POSTs one concept plus one frame to the
- * Responses API `sam-3.1` model. Verified: the request returns HTTP 200
- * with `images_processed: 1`, but the message holds empty text and no
- * boxes, masks, or annotations, so no box shape is confirmed yet (see
- * STATUS.md); parsing stays defensive and yields zero crops until one is.
- * Crop bytes pass the frame through until a pixel-crop step exists.
+ * Responses API `sam-3.1` model. The request follows the official docs
+ * (bare noun-phrase concept in `input_text`, `type: "message"` item);
+ * boxes parse from the documented token grammar when present. Live
+ * probes still return empty text for document concepts (see STATUS.md),
+ * so real mode segments through Spark boxes until SAM matches; parsing
+ * stays defensive and yields zero crops on empty output. Crop bytes pass
+ * the frame through until a pixel-crop step exists.
  */
 export class RealSamAdapter implements SamAdapter {
   readonly name = "real";
@@ -259,12 +301,12 @@ export class RealSamAdapter implements SamAdapter {
         model: this.model,
         input: [
           {
+            type: "message",
             role: "user",
             content: [
-              {
-                type: "input_text",
-                text: `Locate every instance of this concept and return bounding boxes as JSON: ${concept}`,
-              },
+              // Bare noun phrase per the official docs; instructions and
+              // questions "often return nothing".
+              { type: "input_text", text: concept },
               { type: "input_image", image_url: dataUrl(input.image) },
             ],
           },
@@ -274,14 +316,13 @@ export class RealSamAdapter implements SamAdapter {
       what: "sam",
       retry: this.retry,
     });
-    const usage = extractSamUsage(payload);
-    recordUsage(usage.inputTokens, usage.outputTokens);
+    const counts = extractSamCounts(payload);
+    recordUsage(counts.inputTokens, counts.outputTokens);
     const boxes = extractBoxes(payload, frameWidth, frameHeight);
     return {
       crops: boxes.map((box) => ({ box, image: input.image })),
       latencyMs: performance.now() - started,
-      // Pricing is unverified; report $0 until measured.
-      costUsd: 0,
+      costUsd: samCostUsd(counts.images, counts.videoFrames),
     };
   }
 }
