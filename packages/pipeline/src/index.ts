@@ -1,4 +1,9 @@
-export { appendAudit } from "./audit.ts";
+export {
+  appendAudit,
+  listAuditSessions,
+  readSessionAudit,
+  type AuditStoreOptions,
+} from "./audit.ts";
 export { draftClaim, type ClaimDraftInput } from "./claim.ts";
 export { checkCrossDoc, type CrossDocOptions } from "./crossdoc.ts";
 export {
