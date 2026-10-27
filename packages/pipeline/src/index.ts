@@ -39,6 +39,12 @@ export {
 } from "./glimmer.ts";
 export { loadDotEnv, requireModelApiKey } from "./key.ts";
 export {
+  createPipelineAdapters,
+  resolveModelMode,
+  type ModelMode,
+  type PipelineAdapters,
+} from "./mode.ts";
+export {
   assertSingleConcept,
   createSamAdapter,
   defaultDocumentBox,
@@ -59,6 +65,8 @@ export {
   type SparkAdapter,
   type SparkEscalationInput,
   type SparkEscalationOutput,
+  type SparkJudgment,
+  type SparkUsage,
 } from "./spark.ts";
 export {
   type AuditEntry,
