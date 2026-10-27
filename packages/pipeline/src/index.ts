@@ -26,7 +26,18 @@ export {
   type GlimmerPassOutput,
 } from "./glimmer.ts";
 export { requireModelApiKey } from "./key.ts";
-export { cropDocument, type SamCropInput } from "./sam.ts";
+export {
+  assertSingleConcept,
+  createSamAdapter,
+  defaultDocumentBox,
+  extractBoxes,
+  RealSamAdapter,
+  StubSamAdapter,
+  type RealSamOptions,
+  type SamAdapter,
+  type SamCropInput,
+  type SamCropOutput,
+} from "./sam.ts";
 export {
   createSparkAdapter,
   ESTIMATED_SPARK_CALL_COST_USD,
