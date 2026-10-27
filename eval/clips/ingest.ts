@@ -1,11 +1,17 @@
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdtemp, readdir, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import {
+  analyzeFrames,
   createSamAdapter,
+  CropCache,
+  decodePngToGray,
+  frameHash,
   runTieredPipeline,
+  selectKeyframes,
   type CrossDocOptions,
   type Crop,
   type GlimmerAdapter,
@@ -13,6 +19,7 @@ import {
   type SessionState,
   type SparkAdapter,
   type TieredPipelineResult,
+  type VerdictCache,
 } from "@second-look/pipeline";
 import { ffmpegPath, type ClipSidecar } from "./render.ts";
 
@@ -110,7 +117,22 @@ export interface ClipPathOptions {
   frameWidth?: number;
   frameHeight?: number;
   crossDocOptions?: CrossDocOptions;
+  /** Max keyframes to run verdicts on; default 3. */
+  maxKeyframes?: number;
+  /** Min dhash bits changed to cut a new keyframe; default 8. */
+  keyframeThreshold?: number;
+  /** Crop cache (frame-hash keyed); fresh per call unless shared. */
+  cropCache?: CropCache;
+  /** Verdict cache for repeat escalations; fresh per call unless shared. */
+  verdictCache?: VerdictCache;
+  /** Per-call Spark `max_output_tokens` cap for clip escalations. */
+  sparkMaxOutputTokens?: number;
+  /** Called per streamed keyframe verdict, before the run completes. */
+  onKeyframe?: (verdict: KeyframeVerdict) => void;
 }
+
+/** Tighter Spark output cap for the clip path (escalation JSON is small). */
+export const CLIP_SPARK_MAX_TOKENS = 768;
 
 export interface ClipPathResult {
   frames: ClipFrameResult[];
@@ -120,6 +142,22 @@ export interface ClipPathResult {
   sampleLatencyMs: number;
   pipelineLatencyMs: number;
   totalLatencyMs: number;
+  /** Frames sampled vs keyframes run. */
+  framesScanned: number;
+  keyframes: number;
+  cropCacheHits: number;
+  sparkCacheHits: number;
+  /** Pipeline time to the first keyframe verdict (streaming metric). */
+  firstVerdictLatencyMs: number;
+}
+
+/** One streamed partial verdict plus its cache provenance. */
+export interface KeyframeVerdict {
+  frame: ClipFrameResult;
+  /** Ms since the pipeline started (sampling excluded). */
+  elapsedMs: number;
+  cropCached: boolean;
+  sparkCached: boolean;
 }
 
 const SEVERITY: Record<SessionState, number> = { clean: 0, mismatch: 1, blocked: 2 };
@@ -134,12 +172,101 @@ function worstVerdict(frames: ClipFrameResult[]): SessionState {
   return worst;
 }
 
+/** Keyframe indices; undecodable frames (test fakes) all run. */
+function pickKeyframes(frames: SampledFrame[], options: ClipPathOptions): number[] {
+  try {
+    return selectKeyframes(analyzeFrames(frames.map((frame) => frame.png)), {
+      maxKeyframes: options.maxKeyframes,
+      changeThreshold: options.keyframeThreshold,
+    });
+  } catch {
+    return frames.map((_, index) => index);
+  }
+}
+
+/** Pixel-hash cache key, falling back to raw bytes when undecodable. */
+function frameCacheKey(png: Uint8Array): string {
+  try {
+    return frameHash(decodePngToGray(png));
+  } catch {
+    return createHash("sha256").update(png).digest("hex");
+  }
+}
+
 /**
- * Run sampled frames through the live-glasses path: SAM crop per frame,
- * then validators first, the Glimmer local pass, and Spark only on
- * disagreement, cross-doc conflict, or handwriting. Paper values come from
- * the clip's documented ground truth (standing in for Glimmer reads until
- * the vision adapters land); typed values come from the screen reader.
+ * Stream keyframes through the live-glasses path, yielding one partial
+ * verdict per keyframe: crop (cached by frame hash) then validators
+ * first, the Glimmer local pass, and Spark only on disagreement,
+ * cross-doc conflict, or handwriting. Paper values come from the clip's
+ * documented ground truth; typed values come from the screen reader.
+ */
+export async function* runClipFramesStream(
+  frames: SampledFrame[],
+  paperValues: Record<string, string>,
+  typedValues: Record<string, string>,
+  boxes: ClipSidecar["groundTruth"]["boxes"],
+  options: ClipPathOptions = {},
+): AsyncGenerator<KeyframeVerdict> {
+  const started = performance.now();
+  const sam = options.sam ?? createSamAdapter("stub");
+  const concept = options.concept ?? "shipping document";
+  const cropCache = options.cropCache ?? new CropCache();
+  const readings = Object.entries(paperValues).map(([fieldId, paperValue]) => ({
+    fieldId,
+    paperValue,
+    typedValue: typedValues[fieldId] ?? null,
+  }));
+  for (const index of pickKeyframes(frames, options)) {
+    const frame = frames[index]!;
+    const cacheKey = frameCacheKey(frame.png);
+    const cached = cropCache.get(cacheKey);
+    let crops = cached ?? [];
+    let samLatencyMs = 0;
+    let samCostUsd = 0;
+    if (!cached) {
+      const samOut = await sam.crop({
+        image: frame.png,
+        concept,
+        frameWidth: options.frameWidth ?? 720,
+        frameHeight: options.frameHeight ?? 1280,
+        groundTruth: sam.name === "stub" ? boxes : undefined,
+      });
+      crops = samOut.crops;
+      samLatencyMs = samOut.latencyMs;
+      samCostUsd = samOut.costUsd;
+      cropCache.set(cacheKey, crops);
+    }
+    const tiered = await runTieredPipeline({
+      readings,
+      typedValues,
+      crops,
+      glimmer: options.glimmer,
+      spark: options.spark,
+      crossDocOptions: options.crossDocOptions,
+      verdictCache: options.verdictCache,
+      sparkMaxOutputTokens: options.sparkMaxOutputTokens ?? CLIP_SPARK_MAX_TOKENS,
+    });
+    tiered.modelCalls.push({
+      model: "sam",
+      adapter: sam.name,
+      outcome: cached ? "crop (cached)" : "crop",
+      latencyMs: samLatencyMs,
+      costUsd: samCostUsd,
+    });
+    const partial: KeyframeVerdict = {
+      frame: { timestampSec: frame.timestampSec, crops, tiered },
+      elapsedMs: performance.now() - started,
+      cropCached: cached !== null,
+      sparkCached: tiered.sparkCached,
+    };
+    options.onKeyframe?.(partial);
+    yield partial;
+  }
+}
+
+/**
+ * Run sampled keyframes through the live-glasses path and collect the
+ * streamed partial verdicts into one summary.
  */
 export async function runClipFrames(
   frames: SampledFrame[],
@@ -147,33 +274,17 @@ export async function runClipFrames(
   typedValues: Record<string, string>,
   boxes: ClipSidecar["groundTruth"]["boxes"],
   options: ClipPathOptions = {},
-): Promise<Omit<ClipPathResult, "sampleLatencyMs" | "totalLatencyMs"> & { pipelineLatencyMs: number }> {
+): Promise<Omit<ClipPathResult, "sampleLatencyMs" | "totalLatencyMs">> {
   const started = performance.now();
-  const sam = options.sam ?? createSamAdapter("stub");
-  const concept = options.concept ?? "shipping document";
-  const readings = Object.entries(paperValues).map(([fieldId, paperValue]) => ({
-    fieldId,
-    paperValue,
-    typedValue: typedValues[fieldId] ?? null,
-  }));
   const results: ClipFrameResult[] = [];
-  for (const frame of frames) {
-    const samOut = await sam.crop({
-      image: frame.png,
-      concept,
-      frameWidth: options.frameWidth ?? 720,
-      frameHeight: options.frameHeight ?? 1280,
-      groundTruth: sam.name === "stub" ? boxes : undefined,
-    });
-    const tiered = await runTieredPipeline({
-      readings,
-      typedValues,
-      crops: samOut.crops,
-      glimmer: options.glimmer,
-      spark: options.spark,
-      crossDocOptions: options.crossDocOptions,
-    });
-    results.push({ timestampSec: frame.timestampSec, crops: samOut.crops, tiered });
+  let cropCacheHits = 0;
+  let sparkCacheHits = 0;
+  let firstVerdictLatencyMs = 0;
+  for await (const verdict of runClipFramesStream(frames, paperValues, typedValues, boxes, options)) {
+    if (results.length === 0) firstVerdictLatencyMs = verdict.elapsedMs;
+    if (verdict.cropCached) cropCacheHits += 1;
+    if (verdict.sparkCached) sparkCacheHits += 1;
+    results.push(verdict.frame);
   }
   const verdict = worstVerdict(results);
   return {
@@ -181,6 +292,11 @@ export async function runClipFrames(
     verdict,
     framesAgree: results.every((r) => r.tiered.verdict.state === verdict),
     pipelineLatencyMs: performance.now() - started,
+    framesScanned: frames.length,
+    keyframes: results.length,
+    cropCacheHits,
+    sparkCacheHits,
+    firstVerdictLatencyMs,
   };
 }
 

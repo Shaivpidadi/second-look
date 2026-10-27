@@ -7,8 +7,18 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { buildForm, renderForm } from "@second-look/generator";
 import { validateAwb } from "@second-look/validators";
-import type { SparkAdapter, SparkEscalationOutput } from "@second-look/pipeline";
-import { runClipFrames, sampleFrames } from "../clips/ingest.ts";
+import { VerdictCache } from "@second-look/pipeline";
+import type {
+  SamAdapter,
+  SamCropOutput,
+  SparkAdapter,
+  SparkEscalationOutput,
+} from "@second-look/pipeline";
+import {
+  runClipFrames,
+  runClipFramesStream,
+  sampleFrames,
+} from "../clips/ingest.ts";
 import { nominalBoxes } from "../clips/render.ts";
 import { ffmpegPath } from "../clips/render.ts";
 
@@ -105,6 +115,86 @@ describe("runClipFrames", () => {
     });
     assert.equal(escalations, 2);
     assert.equal(result.frames[0]!.tiered.modelCalls[1]?.adapter, "recording");
+  });
+
+  it("streams one partial verdict per keyframe with cache flags", async () => {
+    const { typed } = buildForm("clip-test", 42);
+    const partials = [];
+    for await (const partial of runClipFramesStream(
+      frames(3),
+      { ...typed },
+      typed,
+      nominalBoxes(),
+    )) {
+      partials.push(partial);
+    }
+    // Fake bytes are undecodable, so every frame runs as a keyframe.
+    assert.equal(partials.length, 3);
+    assert.ok(partials[0]!.elapsedMs >= 0);
+    assert.equal(partials[0]!.cropCached, false);
+    assert.equal(partials[1]!.cropCached, true);
+    assert.ok(
+      partials.every((p) => p.frame.tiered.verdict.state === "clean"),
+    );
+  });
+
+  it("caches crops by frame hash and reports scan stats", async () => {
+    let crops = 0;
+    const sam: SamAdapter = {
+      name: "counting",
+      async crop(input): Promise<SamCropOutput> {
+        crops += 1;
+        return {
+          crops: (input.groundTruth ?? []).map((box) => ({ box, image: input.image })),
+          latencyMs: 1,
+          costUsd: 0,
+        };
+      },
+    };
+    const { typed } = buildForm("clip-test", 42);
+    const seen: number[] = [];
+    const result = await runClipFrames(frames(3), { ...typed }, typed, nominalBoxes(), {
+      sam,
+      onKeyframe: () => {
+        seen.push(1);
+      },
+    });
+    assert.equal(crops, 1);
+    assert.equal(seen.length, 3);
+    assert.equal(result.framesScanned, 3);
+    assert.equal(result.keyframes, 3);
+    assert.equal(result.cropCacheHits, 2);
+    assert.ok(result.firstVerdictLatencyMs >= 0);
+    assert.equal(result.frames[1]!.tiered.modelCalls.at(-1)?.outcome, "crop (cached)");
+  });
+
+  it("reuses verdict-cache escalations across frames", async () => {
+    let escalations = 0;
+    const spark: SparkAdapter = {
+      name: "counting",
+      async escalate(input): Promise<SparkEscalationOutput> {
+        escalations += 1;
+        return {
+          explanation: "gap",
+          proposedFixes: [],
+          latencyMs: 2,
+          costUsd: 0.001,
+        };
+      },
+    };
+    const { form } = buildForm("clip-test", 42);
+    form.invoice.totalQty = form.packing.totalQty - 2;
+    const paper: Record<string, string> = {
+      "invoice.totalQty": String(form.invoice.totalQty),
+      "packing.totalQty": String(form.packing.totalQty),
+    };
+    const result = await runClipFrames(frames(2), paper, { ...paper }, nominalBoxes(), {
+      spark,
+      verdictCache: new VerdictCache(),
+    });
+    assert.equal(escalations, 1);
+    assert.equal(result.sparkCacheHits, 1);
+    assert.equal(result.frames[1]!.tiered.sparkCached, true);
   });
 
   it("flags a paper invoice/packing quantity gap as mismatch", async () => {

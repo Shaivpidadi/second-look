@@ -7,6 +7,7 @@ import {
   checkCrossDoc,
   checkDigitChecks,
   createPipelineAdapters,
+  CropCache,
   draftClaim,
   exportAuditCsv,
   exportAuditMarkdown,
@@ -18,12 +19,19 @@ import {
   reduceVerdict,
   resolveModelMode,
   StubSamAdapter,
+  VerdictCache,
   type AuditEntry,
   type ModelMode,
   type PipelineAdapters,
   type SessionState,
 } from "@second-look/pipeline";
-import { readSidecar, runClipPath, sampleFrames } from "./ingest.ts";
+import {
+  readSidecar,
+  runClipPath,
+  sampleFrames,
+  type ClipPathResult,
+  type KeyframeVerdict,
+} from "./ingest.ts";
 import { PLACEHOLDER_NOTE } from "./render.ts";
 
 export const E2E_SESSION = "clip-e2e";
@@ -36,6 +44,8 @@ export interface CheckOutcome {
   detail: string;
   latencyMs: number;
   withinTarget: boolean;
+  /** Pipeline ms to the first streamed keyframe verdict. */
+  firstVerdictMs: number;
 }
 
 function swapAt(value: string, at: number): string {
@@ -79,6 +89,33 @@ function auditEntry(
 
 export interface E2EOptions {
   adapters?: PipelineAdapters;
+  caches?: E2ESharedCaches;
+}
+
+export interface E2ESharedCaches {
+  crop: CropCache;
+  verdict: VerdictCache;
+}
+
+function partialLogger(label: string): (verdict: KeyframeVerdict) => void {
+  return (verdict) => {
+    const spark = verdict.frame.tiered.spark;
+    console.log(
+      `  [partial ${label}] t+${(verdict.elapsedMs / 1000).toFixed(1)}s ` +
+        `frame=${verdict.frame.timestampSec.toFixed(1)}s ` +
+        `verdict=${verdict.frame.tiered.verdict.state} ` +
+        `spark=${spark ? (verdict.sparkCached ? "cached" : "live") : "none"} ` +
+        `crop=${verdict.cropCached ? "cached" : "live"}`,
+    );
+  };
+}
+
+function runSummary(run: ClipPathResult): string {
+  return (
+    `${run.keyframes} keyframes/${run.framesScanned} scanned, ` +
+    `first verdict ${run.firstVerdictLatencyMs.toFixed(0)}ms, ` +
+    `crop cache ${run.cropCacheHits}, spark cache ${run.sparkCacheHits}`
+  );
 }
 
 async function checkSwappedAwb(
@@ -90,7 +127,13 @@ async function checkSwappedAwb(
   const paper = sidecar.groundTruth.paperValues;
   const typedAwb = swappedAwb(paper["awb.awbNumber"]!);
   const typed = { ...paper, "awb.awbNumber": typedAwb };
-  const run = await runClipPath(clip, typed, { fps: E2E_FPS, ...options.adapters });
+  const run = await runClipPath(clip, typed, {
+    fps: E2E_FPS,
+    ...options.adapters,
+    cropCache: options.caches?.crop,
+    verdictCache: options.caches?.verdict,
+    onKeyframe: partialLogger("awb-swap"),
+  });
   const failures = run.frames[0]!.tiered.verdict.failures;
   const fixes = run.frames[0]!.tiered.spark?.proposedFixes ?? [];
   const fix = fixes.find((f) => f.fieldId === "awb.awbNumber");
@@ -98,15 +141,17 @@ async function checkSwappedAwb(
     run.verdict === "blocked" &&
     failures.some((f) => f.fieldId === "awb.awbNumber" && f.kind === "check_digit") &&
     fix?.paperValue === paper["awb.awbNumber"];
+  const detail = pass
+    ? `blocked, fix proposes paper ${fix?.paperValue}`
+    : `verdict=${run.verdict} fix=${fix?.paperValue ?? "none"}`;
   return {
     outcome: {
       name: "swapped AWB digit -> block + fix",
       pass,
-      detail: pass
-        ? `blocked, fix proposes paper ${fix?.paperValue}`
-        : `verdict=${run.verdict} fix=${fix?.paperValue ?? "none"}`,
+      detail: `${detail} | ${runSummary(run)}`,
       latencyMs: run.totalLatencyMs,
       withinTarget: run.totalLatencyMs < LATENCY_TARGET_MS,
+      firstVerdictMs: run.firstVerdictLatencyMs,
     },
     entry: auditEntry(
       "awb.awbNumber",
@@ -165,6 +210,7 @@ async function checkModelsOff(
         : `verdict=${verdict.state}`,
       latencyMs,
       withinTarget: latencyMs < LATENCY_TARGET_MS,
+      firstVerdictMs: latencyMs,
     },
     entry: auditEntry("awb.awbNumber", paper["awb.awbNumber"]!, typedAwb, verdict.state, "block (models off)"),
   };
@@ -177,21 +223,29 @@ async function checkQtyGap(
   const clip = join(clipsDir, "clip-pod.mp4");
   const sidecar = await readSidecar(clip);
   const paper = sidecar.groundTruth.paperValues;
-  const run = await runClipPath(clip, { ...paper }, { fps: E2E_FPS, ...options.adapters });
+  const run = await runClipPath(clip, { ...paper }, {
+    fps: E2E_FPS,
+    ...options.adapters,
+    cropCache: options.caches?.crop,
+    verdictCache: options.caches?.verdict,
+    onKeyframe: partialLogger("qty-gap"),
+  });
   const failures = run.frames[0]!.tiered.verdict.failures;
   const pass =
     run.verdict === "mismatch" &&
     failures.some((f) => f.fieldId === "invoice.totalQty" && f.kind === "cross_doc") &&
     run.frames[0]!.tiered.escalated;
+  const detail = pass
+    ? `flagged: invoice ${paper["invoice.totalQty"]} vs packing ${paper["packing.totalQty"]}, escalated to Spark`
+    : `verdict=${run.verdict}`;
   return {
     outcome: {
       name: "invoice vs packing qty gap -> flag",
       pass,
-      detail: pass
-        ? `flagged: invoice ${paper["invoice.totalQty"]} vs packing ${paper["packing.totalQty"]}, escalated to Spark`
-        : `verdict=${run.verdict}`,
+      detail: `${detail} | ${runSummary(run)}`,
       latencyMs: run.totalLatencyMs,
       withinTarget: run.totalLatencyMs < LATENCY_TARGET_MS,
+      firstVerdictMs: run.firstVerdictLatencyMs,
     },
     entry: auditEntry(
       "invoice.totalQty",
@@ -212,7 +266,13 @@ async function checkClaimDraft(
   const clip = join(clipsDir, "clip-pod.mp4");
   const sidecar = await readSidecar(clip);
   const paper = sidecar.groundTruth.paperValues;
-  const run = await runClipPath(clip, { ...paper }, { fps: E2E_FPS, ...options.adapters });
+  const run = await runClipPath(clip, { ...paper }, {
+    fps: E2E_FPS,
+    ...options.adapters,
+    cropCache: options.caches?.crop,
+    verdictCache: options.caches?.verdict,
+    onKeyframe: partialLogger("claim"),
+  });
   const note = paper["pod.exceptionNote"]!;
   const draft = mentionsDamage(note)
     ? await draftClaim({
@@ -228,15 +288,17 @@ async function checkClaimDraft(
     draft.damagedQty === 2 &&
     draft.body.includes(paper["bol.bolNumber"]!) &&
     draft.body.includes("[AMOUNT TBD]");
+  const detail = pass
+    ? `drafted ${draft.source} claim, damagedQty=2`
+    : `draft=${draft === null ? "none" : `qty=${draft.damagedQty}`}`;
   return {
     outcome: {
       name: '"2 cartons damaged" on POD -> claim draft',
       pass,
-      detail: pass
-        ? `drafted ${draft.source} claim, damagedQty=2`
-        : `draft=${draft === null ? "none" : `qty=${draft.damagedQty}`}`,
+      detail: `${detail} | ${runSummary(run)}`,
       latencyMs,
       withinTarget: latencyMs < LATENCY_TARGET_MS,
+      firstVerdictMs: run.firstVerdictLatencyMs,
     },
     entry: auditEntry("pod.exceptionNote", note, note, run.verdict, "claim-draft", run.frames[0]!.tiered.modelCalls),
   };
@@ -254,10 +316,14 @@ export async function runE2E(clipsDir: string, options: E2EOptions = {}): Promis
   }
   // Fresh audit trail per run; appendAudit is append-only otherwise.
   await rm(join(clipsDir, `audit-${E2E_SESSION}.jsonl`), { force: true });
+  const shared: E2EOptions = {
+    ...options,
+    caches: options.caches ?? { crop: new CropCache(), verdict: new VerdictCache() },
+  };
   const checks = [checkSwappedAwb, checkModelsOff, checkQtyGap, checkClaimDraft];
   const outcomes: CheckOutcome[] = [];
   for (const check of checks) {
-    const { outcome, entry } = await check(clipsDir, options);
+    const { outcome, entry } = await check(clipsDir, shared);
     await appendAudit(entry, { dir: clipsDir });
     outcomes.push(outcome);
   }

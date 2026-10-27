@@ -32,7 +32,7 @@ export interface Verdict {
 
 /** One model call in a tiered run, with measured latency and cost. */
 export interface ModelCall {
-  model: "glimmer" | "spark";
+  model: "glimmer" | "spark" | "sam";
   /** Which adapter served the call: "stub" or "real". */
   adapter: string;
   outcome: string;
