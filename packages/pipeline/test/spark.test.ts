@@ -4,6 +4,7 @@ import {
   getCallStats,
   RealSparkAdapter,
   resetCallStats,
+  sparkCostUsd,
 } from "../src/index.ts";
 
 /** Canned Responses payload matching the verified live envelope. */
@@ -81,9 +82,9 @@ describe("RealSparkAdapter verified shapes", () => {
     assert.deepEqual(out.proposedFixes, [
       { fieldId: "awb.awbNumber", paperValue: "02027342210", typedValue: "02027342211" },
     ]);
-    assert.deepEqual(out.usage, { inputTokens: 42, outputTokens: 17 });
+    assert.deepEqual(out.usage, { inputTokens: 42, outputTokens: 17, cachedInputTokens: 0 });
     assert.deepEqual(getCallStats().inputTokens, 42);
-    assert.equal(out.costUsd, 0);
+    assert.equal(out.costUsd, sparkCostUsd(42, 17, 0));
     assert.ok(out.latencyMs >= 0);
   });
 
@@ -146,6 +147,39 @@ describe("RealSparkAdapter verified shapes", () => {
       question: "q",
     });
     assert.equal(none.explanation, "spark: empty response");
+  });
+
+  it("discounts cached input tokens in costUsd", async () => {
+    const fetchImpl = (async () =>
+      new Response(
+        JSON.stringify({
+          object: "response",
+          status: "completed",
+          output: [
+            {
+              type: "message",
+              role: "assistant",
+              content: [{ type: "output_text", text: '{"explanation": "ok", "flagged": false}', annotations: [] }],
+              status: "completed",
+            },
+          ],
+          usage: {
+            input_tokens: 1000,
+            input_tokens_details: { cached_tokens: 400 },
+            output_tokens: 100,
+            total_tokens: 1100,
+          },
+        }),
+        { status: 200 },
+      )) as unknown as typeof fetch;
+    const out = await new RealSparkAdapter({ fetchImpl }).escalate({
+      readings: [],
+      crops: [],
+      question: "q",
+    });
+    assert.deepEqual(out.usage, { inputTokens: 1000, outputTokens: 100, cachedInputTokens: 400 });
+    assert.equal(out.costUsd, sparkCostUsd(1000, 100, 400));
+    assert.ok(out.costUsd < sparkCostUsd(1000, 100, 0));
   });
 
   it("retries a 429 through the shared transport", async () => {

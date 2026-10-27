@@ -1,6 +1,7 @@
 import type { Crop, FieldCheck, FieldReading } from "./types.ts";
 import { postJson, recordUsage, type RetryOptions } from "./http.ts";
 import { requireModelApiKey } from "./key.ts";
+import { sparkCostUsd } from "./pricing.ts";
 
 export interface SparkEscalationInput {
   /** Redacted readings from the Glimmer pass; never raw PII. */
@@ -14,6 +15,8 @@ export interface SparkEscalationInput {
 export interface SparkUsage {
   inputTokens: number;
   outputTokens: number;
+  /** Input tokens served from prompt cache (billed at the cached rate). */
+  cachedInputTokens: number;
 }
 
 /** Structured pass/fail judgment parsed from the model's JSON reply. */
@@ -44,11 +47,12 @@ export interface SparkAdapter {
 }
 
 /**
- * Placeholder per-call cost estimate for the stub until PLAN spike 4
- * measures real Spark vision $/form. Deterministic so eval can compare
- * arms; the real adapter reports measured cost once pricing is verified.
+ * Measured mean Spark call cost: ~450 input / ~460 output tokens over the
+ * 100-form eval at official Standard rates ($1.25/$4.25 per 1M). The stub
+ * reports this deterministic estimate; the real adapter prices each
+ * response from its own `usage` block.
  */
-export const ESTIMATED_SPARK_CALL_COST_USD = 0.005;
+export const ESTIMATED_SPARK_CALL_COST_USD = 0.0025;
 
 /**
  * Deterministic stub: explains the paper/typed diffs in the redacted
@@ -142,12 +146,18 @@ function extractUsage(payload: unknown): SparkUsage {
   if (isRecord(payload) && isRecord(payload.usage)) {
     const input = payload.usage.input_tokens;
     const output = payload.usage.output_tokens;
+    const details = payload.usage.input_tokens_details;
+    const cached =
+      isRecord(details) && typeof details.cached_tokens === "number"
+        ? details.cached_tokens
+        : 0;
     return {
       inputTokens: typeof input === "number" ? input : 0,
       outputTokens: typeof output === "number" ? output : 0,
+      cachedInputTokens: cached,
     };
   }
-  return { inputTokens: 0, outputTokens: 0 };
+  return { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0 };
 }
 
 /** Largest `{...}` span in the text, tolerating fences and prose. */
@@ -227,8 +237,8 @@ function cropDataUrl(image: Uint8Array): string {
  * response shapes verified against `muse-spark-1.3` (see STATUS.md):
  * message-style `input` with `input_text`/`input_image` blocks, cap
  * `max_output_tokens`, low reasoning effort, and `output[].content[]`
- * `output_text` replies with a `usage` block. Pricing is unverified, so
- * `costUsd` stays 0 and token usage is reported instead.
+ * `output_text` replies with a `usage` block. `costUsd` prices that
+ * usage at official Standard rates (cached input discounted).
  */
 export class RealSparkAdapter implements SparkAdapter {
   readonly name = "real";
@@ -295,7 +305,7 @@ export class RealSparkAdapter implements SparkAdapter {
       explanation: "",
       proposedFixes: [],
       latencyMs: performance.now() - started,
-      costUsd: 0,
+      costUsd: sparkCostUsd(usage.inputTokens, usage.outputTokens, usage.cachedInputTokens),
       usage,
     };
     if (json === null) {

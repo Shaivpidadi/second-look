@@ -13,6 +13,15 @@ export {
 } from "./cache.ts";
 export { checkDigitChecks, fieldMatchChecks } from "./checks.ts";
 export {
+  SAM_IMAGE_USD,
+  SAM_VIDEO_FRAME_USD,
+  samCostUsd,
+  SPARK_CACHED_INPUT_USD_PER_TOKEN,
+  SPARK_INPUT_USD_PER_TOKEN,
+  SPARK_OUTPUT_USD_PER_TOKEN,
+  sparkCostUsd,
+} from "./pricing.ts";
+export {
   analyzeFrames,
   decodePngToGray,
   dhash64,
@@ -87,6 +96,11 @@ export {
   type SparkJudgment,
   type SparkUsage,
 } from "./spark.ts";
+export {
+  parseNormalizedBoxes,
+  SparkBoxAdapter,
+  type SparkBoxOptions,
+} from "./sparkbox.ts";
 export {
   type AuditEntry,
   type BoundingBox,
