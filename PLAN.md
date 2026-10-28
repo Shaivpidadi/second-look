@@ -150,3 +150,10 @@ Top 5 risks, each with a ≤30-min spike:
   sub-5s totals re-confirmed on stub and real clip E2E, DEMO.md
   dry-run corrections, SUBMIT.md final copy. 58/150 calls.
   Screens changed: reshoot needed.
+- [x] Batch 15 (Oct 28): reshoot committed, 16-shot critique in
+  docs/critique-batch15.md with all 3 findings fixed (Oct 27-28
+  badges, strip E2E-total cell), headline number guard across
+  four docs (35 assertions, no drift), Next steps rewritten,
+  docs/SHOTLIST.md with dry-run numbers, a11y pass (contrast,
+  drawer Escape/labels). 0 calls. Screens changed:
+  reshoot needed.

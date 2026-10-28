@@ -1,4 +1,34 @@
-# Status — Batch 14 done: abstention gate, sub-5s confirm, doc dry-run (Oct 28)
+# Status — Batch 15 done: number guard, shotlist, a11y (Oct 28)
+
+## Batch 15 done
+
+Reshoot committed (16 shots incl. the new audit view), all 16
+critiqued (docs/critique-batch15.md), all 3 findings fixed.
+Screens changed, so another reshoot is needed.
+
+- Stale badges fixed: eval "Measured Oct 27-28", landing
+  "Oct 27-28 runs" (vision re-measured Oct 28, the rest Oct 27).
+- Landing strip retires the batch-8 "First verdict p50 3.2s"
+  cell for "E2E total qty-gap 4.9s, live, under 5s" (the
+  recorded README/DEMO instance); sub-line drops the stale n=3.
+- Number guard: eval/headlines.ts is the single source of truth
+  for headline numbers (counts, breakdown, P/R, latency totals,
+  costs, API totals); eval/test/numbers.test.ts asserts 35 exact
+  quotes across README, DEMO, SUBMIT, and STATUS. No drift found.
+- Next steps rewritten to real remaining items only, with
+  Shaishav-needed items marked (record, review, file).
+- docs/SHOTLIST.md: per-beat URL, clicks, visible elements,
+  expected numbers (all dry-run against fixtures, the fixed
+  demo seed, and stub replay output), and stub backups.
+- Accessibility: ink-faint brightened to 5.2:1 (was 3.3:1);
+  drawer closes on Escape and its X button is labelled (shots
+  script simplified to match); audit found labels, focus
+  states, badge contrast, and keyboard paths already correct.
+  Drawer focus trap/restore left as future work.
+
+Batch spend: 0 model API calls (fixtures and offline checks only).
+`pnpm -r test`: 292 pass, 0 fail. `pnpm -r typecheck`: pass
+(5 projects). `next build`: pass.
 
 ## Batch 14 done
 
