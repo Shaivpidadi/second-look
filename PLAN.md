@@ -127,3 +127,11 @@ Top 5 risks, each with a ≤30-min spike:
   wired, 0 observed), and demo prep (`docs/DEMO.md` 3-minute script +
   `clips:demo` one-command replay, verified offline). 81/150 calls.
   See STATUS.md for the p50/p95 box and spend.
+- [x] Batch 12 (Oct 28): reshoot committed, 15-shot critique fixed
+  (one run-stats selector + agreement test, "<1ms" everywhere
+  incl. the eval report, first-8 status mix, one Pass/Warn/Blocked/
+  Needs-human vocabulary), audit JSONL+CSV export, tiering-proof
+  card (selectTierStats; demo 14 local / 22 escalated / 4
+  validators-only), `docs/SUBMIT.md` checklist + write-up, offline
+  eval rerun identical to README. 0 calls. Screens changed:
+  reshoot needed.

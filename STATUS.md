@@ -1,4 +1,39 @@
-# Status — Batch 12 in progress: reshoot critique, consistency, submission prep (Oct 28)
+# Status — Batch 12 done: consistency, tiering proof, submission prep (Oct 28)
+
+## Batch 12 done
+
+All 10 critique items fixed, all PLAN no-human items closed.
+Screens changed (badges, KPI, tiering card, export buttons, demo
+copy), so a reshoot is needed; shots in docs/shots predate these
+fixes.
+
+- Numbers from one selector: groupRuns + selectRunStats feed every
+  KPI, bar, chart annotation, and row count; the agreement test pins
+  40 = 18 + 10 + 7 + 5 on the demo dataset with p50 in 2-4s.
+- Sub-ms renders as "<1ms" in formatLatency, the eval report, the
+  dashboard eval table, README, and DEMO.md. Reran the offline eval
+  (both corpora, stub arms): identical to README except the new
+  rendering, 0 API calls.
+- First 8 dashboard rows always show blocked, warn, and needs-human
+  via first-screen swaps; timestamps stay honestly newest-first.
+- One vocabulary: Pass, Warn, Blocked, Needs human via verdictLabel
+  on every badge, KPI, breakdown, filter, form state, demo panel,
+  CLI beat, and DEMO.md. "Flag/flagged" survives only as a generic
+  verb or count-column name in tool output, never as a status.
+- Audit log exports the filtered view to JSONL and CSV (tested
+  quoting, nulls, round-trip).
+- Tiering proof card on the overview: Glimmer agree ($0, no Spark
+  call) vs escalated runs with Spark call count, median latency,
+  and cost, from selectTierStats (demo split pinned: 14 local, 22
+  escalated, 4 validators-only). Clean demo checks are now Glimmer
+  agree or validators-only, never Spark.
+- docs/SUBMIT.md: submit checklist plus entry write-up using only
+  measured numbers. Video, repo link, and the entry form itself
+  stay human tasks.
+
+Batch spend: 0 model API calls (fixtures, stubs, offline eval only).
+`pnpm -r test`: 253 pass, 0 fail. `pnpm -r typecheck`: pass
+(5 projects). `next build`: pass.
 
 ## Batch 12 critique
 
