@@ -1,4 +1,41 @@
-# Status — Batch 11 done: critique fixes, sub-5s checks, demo script (Oct 28)
+# Status — Batch 12 in progress: reshoot critique, consistency, submission prep (Oct 28)
+
+## Batch 12 critique
+
+Harsh pass over all 15 recaptured screenshots. Number agreement
+first: overview KPIs now agree with the breakdown (40 = 18 + 10 +
+7 + 5) and the chart p50 matches the KPI; drawer call latencies sum
+to the row latency; demo side stats match card footers on all four
+steps; claims and eval agree with their sources. Remaining:
+
+1. Dashboard numbers must come from one structural source: a
+   single selector over the run list feeding every KPI, bar,
+   chart, badge, and count, plus a test asserting the totals match.
+2. Validator rows show "0ms". Show "<1ms" or the real sub-ms
+   value, formatted identically everywhere latency appears.
+3. Recent checks must mix all non-clean statuses in the first 8
+   rows; the latest shot has no needs-human row in view. Fix
+   ordering and seeding with honest timestamps.
+4. One status vocabulary everywhere: the table says clean /
+   mismatch / blocked while the breakdown says Pass / Warn /
+   Blocked / Needs human. Pick one for every screen, badge,
+   filter, CLI line, and DEMO.md.
+5. Landing mock crop boxes overlap each other over the AWB number.
+   Reposition with clearance.
+6. Demo step 2 invoice lines sum to 365 (200 + 165) but the invoice
+   total is 363. Lines must sum to the total.
+7. Demo side panel says "Model spark-1.3" while card footers say
+   "muse-spark-1.3". Unify on the full id.
+8. Demo step 2 escalation card body truncates mid-word under the
+   two-line clamp. Shorten the fixture copy.
+9. Form invalid input still shows a blue focus ring. Root cause:
+   the global unlayered `:focus-visible` outline beats layered
+   Tailwind utilities regardless of specificity. Fix in globals.css
+   behind an aria-invalid selector and set aria-invalid.
+10. Feature 03 says "Mismatches block the submit gate" and CLI
+    narration says FLAG/BLOCKED; fold into the single vocabulary.
+
+## Batch 11 done: critique fixes, sub-5s checks, demo script (Oct 28)
 
 ## Batch 11 changes
 
