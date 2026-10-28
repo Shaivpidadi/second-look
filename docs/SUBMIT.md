@@ -26,6 +26,10 @@ Hard deadline: Wed Nov 4, 2026, 9:00 PM ET. Target: submit before 6:00 PM ET.
 - [ ] Tests and build green on the submit commit:
       `pnpm -r test`, `pnpm -r typecheck`,
       `pnpm --filter @second-look/web build`.
+- [ ] `pnpm check:submit` passes: no tracked `.env` or secret
+      shapes, no em dashes in user-facing copy, no real company
+      names in fixtures, tests and typecheck green (this runs
+      the headline number guard too).
 - [ ] After submitting, open the public entry page and confirm the
       video plays and the repo link resolves.
 
