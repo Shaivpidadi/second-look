@@ -8,6 +8,17 @@ gate, judge); see the frame protocol below.
 
 SDK research notes live in [ANDROID-NOTES.md](ANDROID-NOTES.md).
 
+## Install on your phone tonight
+
+```sh
+cd apps/android && ANDROID_HOME=~/Library/Android/sdk ./gradlew :app:assembleDebug
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+```
+
+On the Mac: `pnpm demo:lan`, note the printed LAN URL. In the
+app, set Server URL to it, open Check setup: all five rows
+(server, health, key, glasses link, audio) must show PASS.
+
 ## Layout
 
 - `core/` pure JVM module (no Android dependency). HTTP + SSE client for the Second
