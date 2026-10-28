@@ -30,12 +30,12 @@ export function DemoFrame() {
               className="absolute inset-0 h-full w-full object-cover object-top"
             />
             <div className="absolute inset-0 bg-black/25" aria-hidden />
-            <div className="absolute top-[50%] left-[6%] h-[20%] w-[52%] rounded-[3px] border-[1.5px] border-accent bg-accent/10">
+            <div className="absolute top-[23%] left-[4%] h-[15%] w-[38%] rounded-[3px] border-[1.5px] border-accent bg-accent/10">
               <span className="absolute -top-4 left-0 rounded-sm bg-accent px-1 font-mono text-[9px] leading-3.5 text-white">
                 AWB
               </span>
             </div>
-            <div className="absolute bottom-[8%] left-[6%] h-[16%] w-[30%] rounded-[3px] border-[1.5px] border-accent/70 bg-accent/[0.07]">
+            <div className="absolute top-[39%] left-[4%] h-[17%] w-[20%] rounded-[3px] border-[1.5px] border-accent/70 bg-accent/[0.07]">
               <span className="absolute -top-4 left-0 rounded-sm bg-accent/90 px-1 font-mono text-[9px] leading-3.5 text-white">
                 origin
               </span>
@@ -71,7 +71,7 @@ export function DemoFrame() {
       <div className="flex items-center gap-2 border-t border-line bg-sunken px-3 py-2">
         <Badge tone="block">Blocked</Badge>
         <p className="truncate font-mono text-[10px] text-ink-dim tabular">
-          awb.awbNumber check_digit · fix 17479271345 · 3.2s
+          AWB number check digit · fix 17479271345 · 3.2s
         </p>
       </div>
     </div>
