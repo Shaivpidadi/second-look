@@ -71,7 +71,7 @@ export function DemoFrame() {
       <div className="flex items-center gap-2 border-t border-line bg-sunken px-3 py-2">
         <Badge tone="block">Blocked</Badge>
         <p className="truncate font-mono text-[10px] text-ink-dim tabular">
-          AWB number check digit · fix 87915419121 · 3.2s
+          AWB number check digit · fix 87915419121 · 3.1s
         </p>
       </div>
     </div>
