@@ -172,6 +172,10 @@ Top 5 risks, each with a ≤30-min spike:
   `:core:test` green, debug + release APKs assemble,
   docs/ANDROID.md written. 0 calls. Screens unchanged: no
   new reshoot.
+- [x] Batch 22 (Oct 28): fresh-clone proof all green,
+  3 doc/code divergences fixed, env template + drift test,
+  sideload block, local tag rc1. 0 calls. Screens unchanged:
+  no reshoot.
 - [x] Batch 21 (Oct 28): judge output tightened (p90 3.2s
   to 2.8s, P/R 1.0/1.0, 36 calls), one-tap phone fallback,
   docs/video/ package under the number guard, SUBMIT

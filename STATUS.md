@@ -1,4 +1,34 @@
-# Status: Batch 21 done - latency margin, fallback, video (Oct 28)
+# Status: Batch 22 done - fresh-clone reproducibility, rc1 tagged (Oct 28)
+
+## Batch 22 done
+
+Fresh-clone proof: cloned to /tmp, followed only README and
+docs/ANDROID.md with no .env and no local.properties. Install,
+`pnpm -r test` (415 pass), typecheck, `next build`,
+`check:submit` (clean), `:core:test` (52 pass), and
+`:app:assembleDebug` (APK at
+`app/build/outputs/apk/debug/app-debug.apk`) all passed; the
+clone was deleted after. Three divergences found and fixed
+(docs/critique-batch22.md): stale 29/29 core-test count (now
+52/52), bare `unavailable` eval rows (now name MODEL_API_KEY and
+README), stale "switchable while idle" (mid-stream since
+batch 21).
+
+- Env template: all 11 vars the code reads are now in
+  .env.example (names and comments, no values) and in a README
+  table, including previously undocumented MODEL_API_BASE_URL,
+  PORT, SHOTS_BASE, and SHOTS_CHROME. check:submit fails on
+  drift (verified both directions).
+- docs/ANDROID.md now opens with "Install on your phone
+  tonight": build, adb install, base URL, and the expected
+  all-PASS Check setup, in 11 lines.
+- Release candidate: local annotated tag `rc1` on HEAD (not
+  pushed). 0 model API calls this batch.
+
+Batch spend: 0 model API calls (no model work this batch).
+`pnpm test`: 419 pass, 0 fail. `pnpm -r typecheck`: pass.
+`next build`: pass. `pnpm check:submit`: clean. Android:
+`:core:test` 52 pass, debug + release APKs assemble.
 
 ## Batch 21 done
 
