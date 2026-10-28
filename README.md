@@ -108,6 +108,28 @@ pnpm install
 Requires Node 22 and, for the clip path only,
 `/opt/homebrew/bin/ffmpeg` (override with `FFMPEG_BIN`).
 
+Every env var the code reads (see `.env.example`; `check:submit`
+fails on drift):
+
+| var | where it works | default |
+| --- | --- | --- |
+| `MODEL_API_KEY` / `META_API_KEY` | key for live models | none (stubs) |
+| `MODEL_API_BASE_URL` | API base override | `https://api.meta.ai/v1` |
+| `SECOND_LOOK_MODELS` | `real` selects live adapters | stubs |
+| `SECOND_LOOK_CALL_BUDGET` | per-run real-call cap | 300 |
+| `AUDIT_DIR` | form audit log directory | `.audit` |
+| `FFMPEG_BIN` | ffmpeg binary for clips | `/opt/homebrew/bin/ffmpeg` |
+| `PORT` | `demo:lan` / `demo:preflight` port | 3100 |
+| `VERDICT_DELAY_MS` | simulated `/form` delay | unset (live) |
+| `SHOTS_BASE` | screenshot base URL | `http://127.0.0.1:3100` |
+| `SHOTS_CHROME` | screenshot Chrome binary | system Chrome path |
+
+The Next.js app loads `.env` itself; eval CLIs read the five
+`.env` allowlisted vars (`MODEL_API_KEY`, `META_API_KEY`,
+`MODEL_API_BASE_URL`, `SECOND_LOOK_MODELS`,
+`SECOND_LOOK_CALL_BUDGET`) from `.env` and the rest from the
+exported shell environment.
+
 ## Run the form and dashboard
 
 ```sh

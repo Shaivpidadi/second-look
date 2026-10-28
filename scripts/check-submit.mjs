@@ -10,7 +10,9 @@
  *   the canonical "Nov 4, 9pm ET (event page)" / "Nov 3, 9pm ET"
  *   lines,
  * - `pnpm -r test` or `pnpm -r typecheck` fails (the headline
- *   number guard runs inside the eval suite).
+ *   number guard runs inside the eval suite),
+ * - non-test code reads an env var missing from `.env.example`
+ *   or README.md.
  */
 import { execFileSync } from "node:child_process";
 import { readFileSync, readdirSync, statSync } from "node:fs";
@@ -167,7 +169,36 @@ for (const line of ["Nov 4, 9pm ET (event page)", "Nov 3, 9pm ET"]) {
   }
 }
 
-// ---- 5/6. tests, typecheck (number guard runs in the eval suite) ----
+// ---- 5. env documentation drift ----
+// Every static env read in non-test code must name a var listed in
+// both .env.example and README.md. (The one dynamic read,
+// loadDotEnv's allowlisted assignment, only sets names from
+// DOTENV_ALLOWLIST, which are all listed.)
+const ENV_DOCS = [
+  { file: ".env.example", body: readFileSync(join(ROOT, ".env.example"), "utf8") },
+  { file: "README.md", body: readFileSync(join(ROOT, "README.md"), "utf8") },
+];
+const ENV_READ = /process\.env\.([A-Z][A-Z0-9_]*)|\.getenv\("([A-Z][A-Z0-9_]*)"\)/g;
+const TEST_PATH = /(^|\/)(test|tests)(\/|$)|\.test\.(mts|cts|ts|tsx|mjs|js)$/;
+const readVars = new Map();
+for (const file of trackedFiles()) {
+  if (!/\.(mts|cts|ts|tsx|mjs|kt)$/.test(file)) continue;
+  if (TEST_PATH.test(file)) continue;
+  const body = readFileSync(join(ROOT, file), "utf8");
+  for (const match of body.matchAll(ENV_READ)) {
+    const name = match[1] ?? match[2];
+    if (!readVars.has(name)) readVars.set(name, file);
+  }
+}
+for (const [name, file] of readVars) {
+  for (const doc of ENV_DOCS) {
+    if (!doc.body.includes(name)) {
+      fail(`env var ${name} read in ${file} but missing from ${doc.file}`);
+    }
+  }
+}
+
+// ---- 6/7. tests, typecheck (number guard runs in the eval suite) ----
 for (const args of [
   ["-r", "test"],
   ["-r", "typecheck"],
