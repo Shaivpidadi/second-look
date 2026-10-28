@@ -375,10 +375,22 @@ tokens, ~$0.91 total (E2E ~$0.08, vision ~$0.83).
   trust untouched; live-server smoke unchanged (sandbox blocks
   listening sockets).
 
-## Next steps (from PLAN.md)
+## Next steps (only real remaining items)
 
-- Request timeouts + retry so hung calls fail fast, not 284s.
-- Elicit vision abstention (confidence/read-twice) or accept
-  judge-always with measured P/R.
-- Totals under 5s: single-keyframe verdict + overlapped calls.
-- Record backup demo clips; dry-run the demo script.
+Needs Shaishav (human, before 6pm ET Nov 4):
+
+- Record the backup POV clips + screen segments in docs/DEMO.md
+  (glasses developer mode + pairing, or phone POV fallback).
+- Shoot + edit the 3-min video; overlay the measured numbers.
+- Review the cut; fill and file the entry form (docs/SUBMIT.md).
+
+Needs no human:
+
+- Reshoot the 16 screenshots (screens changed this batch).
+- Optional margin work: shorter Spark explanations (per-call
+  variance near ±2s is the whole sub-5s budget); Glimmer weights
+  runner only if chasing the open-weight bonus past the stub.
+
+Done and out of this list: request timeouts + retry (batch 13),
+vision abstention gate measured (batch 14, judge-always
+documented), sub-5s totals (batches 11/14), demo dry-run (batch 14).
