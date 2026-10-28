@@ -94,6 +94,9 @@ fun CameraScreen(viewModel: SessionViewModel) {
     val verdicts by viewModel.verdicts.collectAsState()
     val frames by viewModel.framesPosted.collectAsState()
     val error by viewModel.error.collectAsState()
+    val usePhone by viewModel.usePhoneCamera.collectAsState()
+    val fps by viewModel.streamFps.collectAsState()
+    val swapped by viewModel.chromaSwapped.collectAsState()
     Column(
         modifier = Modifier.fillMaxSize().padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -101,6 +104,23 @@ fun CameraScreen(viewModel: SessionViewModel) {
         Text("Session ${viewModel.sessionId.take(8)} · $sessionState")
         PreviewFrame(preview)
         Text("Frames posted: $frames", style = MaterialTheme.typography.bodySmall)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = { viewModel.toggleCameraSource() }, enabled = !streaming) {
+                Text(if (usePhone) "Source: phone" else "Source: glasses")
+            }
+            OutlinedButton(onClick = { viewModel.toggleChromaSwapped() }) {
+                Text(if (swapped) "Chroma: swapped" else "Chroma: normal")
+            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = { viewModel.setStreamFps(fps - 1) }, enabled = fps > 2) {
+                Text("-")
+            }
+            Text("$fps fps", modifier = Modifier.padding(vertical = 8.dp))
+            OutlinedButton(onClick = { viewModel.setStreamFps(fps + 1) }, enabled = fps < 7) {
+                Text("+")
+            }
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = { viewModel.start() }, enabled = !streaming) { Text("Start") }
             OutlinedButton(onClick = { viewModel.stop() }, enabled = streaming) { Text("Stop") }

@@ -1,9 +1,13 @@
 package com.secondlook.android.session
 
+import android.Manifest
 import android.app.Application
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.util.Log
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.viewModelScope
 import com.meta.wearable.dat.camera.Camera
 import com.meta.wearable.dat.camera.addCamera
@@ -16,6 +20,7 @@ import com.meta.wearable.dat.core.session.DeviceSessionState
 import com.meta.wearable.dat.core.types.Permission
 import com.meta.wearable.dat.core.types.PermissionStatus
 import com.meta.wearable.dat.core.types.RegistrationState
+import com.secondlook.android.frames.PhoneCameraSource
 import com.secondlook.android.frames.YuvJpeg
 import com.secondlook.core.api.FrameEvent
 import com.secondlook.core.api.LiveVerdict
@@ -53,10 +58,11 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
         private set
 
     /**
-     * Manual chroma-order override: flips the undetectable V-first /
-     * U-first order when the preview colors look wrong on the day.
+     * Set by the activity: the lifecycle CameraX binds to, plus a
+     * suspend requester for the Android CAMERA runtime permission.
      */
-    var chromaSwapped = false
+    var phoneLifecycleOwner: LifecycleOwner? = null
+    var phonePermissionRequester: (suspend () -> Boolean)? = null
 
     /** Stable session id for this run; the dashboard can watch it. */
     val sessionId: String = UUID.randomUUID().toString()
@@ -92,8 +98,22 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
 
+    private val _usePhoneCamera = MutableStateFlow(false)
+    val usePhoneCamera: StateFlow<Boolean> = _usePhoneCamera.asStateFlow()
+
+    private val _streamFps = MutableStateFlow(2)
+    val streamFps: StateFlow<Int> = _streamFps.asStateFlow()
+
+    /**
+     * Manual chroma-order override: flips the undetectable V-first /
+     * U-first order when the preview colors look wrong on the day.
+     */
+    private val _chromaSwapped = MutableStateFlow(false)
+    val chromaSwapped: StateFlow<Boolean> = _chromaSwapped.asStateFlow()
+
     private var session: DeviceSession? = null
     private var camera: Camera? = null
+    private var phoneSource: PhoneCameraSource? = null
     private var jobs: List<Job> = emptyList()
     private var loggedOrder = false
 
@@ -128,32 +148,27 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    fun toggleCameraSource() {
+        if (_streaming.value) return
+        _usePhoneCamera.update { !it }
+    }
+
+    fun setStreamFps(fps: Int) {
+        _streamFps.value = fps.coerceIn(2, 7)
+        phoneSource?.fps = _streamFps.value
+    }
+
+    fun toggleChromaSwapped() {
+        _chromaSwapped.update { !it }
+    }
+
     /** Start session, camera, upload, and verdict stream. */
     fun start() {
         if (_streaming.value) return
         loggedOrder = false
         viewModelScope.launch {
-            if (!ensureCameraPermission()) return@launch
-            val newSession = Wearables.createSession(AutoDeviceSelector()).getOrNull()
-            if (newSession == null) {
-                setError("createSession failed")
-                return@launch
-            }
-            session = newSession
             val api = SecondLookApi(serverUrl)
-            // Observe state and errors BEFORE start(), per the SDK guide.
             jobs = listOf(
-                launch {
-                    newSession.errors.collect { error ->
-                        setError("session: ${error.name}")
-                    }
-                },
-                launch {
-                    newSession.state.collect { state ->
-                        _sessionState.value = state.name
-                        if (state == DeviceSessionState.STARTED) attachCamera(newSession, api)
-                    }
-                },
                 launch {
                     try {
                         api.verdicts(sessionId).collect { verdict ->
@@ -164,7 +179,15 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
                     }
                 },
             )
-            newSession.start()
+            val started = if (_usePhoneCamera.value) {
+                startPhone(api)
+            } else {
+                startGlasses(api)
+            }
+            if (!started) {
+                jobs.forEach { it.cancel() }
+                jobs = emptyList()
+            }
         }
     }
 
@@ -172,6 +195,12 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
     fun stop() {
         jobs.forEach { it.cancel() }
         jobs = emptyList()
+        try {
+            phoneSource?.stop()
+        } catch (e: Exception) {
+            Log.w(TAG, "phoneSource.stop failed", e)
+        }
+        phoneSource = null
         try {
             camera?.stop()
         } catch (e: Exception) {
@@ -190,6 +219,67 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
 
     fun clearError() {
         _error.value = null
+    }
+
+    private suspend fun startGlasses(api: SecondLookApi): Boolean {
+        if (!ensureCameraPermission()) return false
+        val newSession = Wearables.createSession(AutoDeviceSelector()).getOrNull()
+        if (newSession == null) {
+            setError("createSession failed")
+            return false
+        }
+        session = newSession
+        // Observe state and errors BEFORE start(), per the SDK guide.
+        jobs = jobs + viewModelScope.launch {
+            newSession.errors.collect { error ->
+                setError("session: ${error.name}")
+            }
+        } + viewModelScope.launch {
+            newSession.state.collect { state ->
+                _sessionState.value = state.name
+                if (state == DeviceSessionState.STARTED) attachCamera(newSession, api)
+            }
+        }
+        newSession.start()
+        return true
+    }
+
+    private suspend fun startPhone(api: SecondLookApi): Boolean {
+        if (!ensurePhonePermission()) return false
+        val owner = phoneLifecycleOwner
+        if (owner == null) {
+            setError("phone camera needs the activity lifecycle")
+            return false
+        }
+        val source = PhoneCameraSource(
+            getApplication(),
+            owner,
+            onJpeg = { jpeg -> viewModelScope.launch { postJpeg(api, jpeg) } },
+            onError = { message -> setError(message) },
+        )
+        source.fps = _streamFps.value
+        source.quality = JPEG_QUALITY
+        phoneSource = source
+        source.start()
+        _sessionState.value = "PHONE"
+        _streaming.value = true
+        return true
+    }
+
+    private suspend fun ensurePhonePermission(): Boolean {
+        val context = getApplication<Application>()
+        if (
+            ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            return true
+        }
+        val requester = phonePermissionRequester
+        if (requester == null) {
+            setError("phone camera permission request needs the activity")
+            return false
+        }
+        return requester()
     }
 
     override fun onCleared() {
@@ -261,9 +351,14 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
                 frame.height,
                 isCompressed = false,
                 JPEG_QUALITY,
-                chromaSwapped,
+                _chromaSwapped.value,
             )
         } ?: return
+        postJpeg(api, jpeg)
+    }
+
+    /** Shared uploader tail: preview plus POST, for both camera sources. */
+    private suspend fun postJpeg(api: SecondLookApi, jpeg: ByteArray) {
         withContext(Dispatchers.Default) {
             YuvJpeg.decode(jpeg)
         }?.let { _preview.value = it }
