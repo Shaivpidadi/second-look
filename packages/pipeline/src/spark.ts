@@ -42,6 +42,13 @@ export interface SparkEscalationOutput {
   unreadable?: string[];
   /** Field ids the model read but flagged as unsure; absent when empty. */
   lowConfidence?: string[];
+  /**
+   * Paper values the model read from the image, by field id. Only the
+   * frame judge asks for these (session document memory); absent otherwise.
+   */
+  paperReadings?: Record<string, string>;
+  /** Document type the model saw (bol, awb, ...); absent when unasked. */
+  document?: string;
 }
 
 /** Spark adapter interface: cloud escalation for disagreements only. */
@@ -219,6 +226,21 @@ function parseLowConfidence(json: Record<string, unknown>): string[] | undefined
   return parseStringList(json, "low_confidence");
 }
 
+function parsePaperReadings(json: Record<string, unknown>): Record<string, string> | undefined {
+  const raw = json.readings;
+  if (!isRecord(raw)) return undefined;
+  const readings: Record<string, string> = {};
+  for (const [key, value] of Object.entries(raw)) {
+    if (typeof value === "string" && value !== "") readings[key] = value;
+  }
+  return Object.keys(readings).length > 0 ? readings : undefined;
+}
+
+function parseDocument(json: Record<string, unknown>): string | undefined {
+  const raw = json.document;
+  return typeof raw === "string" && raw !== "" ? raw : undefined;
+}
+
 function parseFixes(
   json: Record<string, unknown>,
   readings: FieldReading[],
@@ -341,6 +363,10 @@ export class RealSparkAdapter implements SparkAdapter {
     if (unreadable) output.unreadable = unreadable;
     const lowConfidence = parseLowConfidence(json);
     if (lowConfidence) output.lowConfidence = lowConfidence;
+    const paperReadings = parsePaperReadings(json);
+    if (paperReadings) output.paperReadings = paperReadings;
+    const document = parseDocument(json);
+    if (document) output.document = document;
     return output;
   }
 }

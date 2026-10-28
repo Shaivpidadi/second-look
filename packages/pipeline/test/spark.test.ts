@@ -204,6 +204,34 @@ describe("RealSparkAdapter verified shapes", () => {
     assert.equal(readable.unreadable, undefined);
   });
 
+  it("parses paper readings and the document type when present", async () => {
+    const fetchImpl = (async () =>
+      responsesMessage(
+        '{"explanation": "ok", "flagged": false, "document": "bol", ' +
+          '"readings": {"bol.weightKg": "1000", "bol.carrier": "Acme Freight", "junk": 7, "empty": ""}}',
+      )) as unknown as typeof fetch;
+    const out = await new RealSparkAdapter({ fetchImpl }).escalate({
+      readings: [],
+      crops: [],
+      question: "q",
+    });
+    assert.equal(out.document, "bol");
+    assert.deepEqual(out.paperReadings, {
+      "bol.weightKg": "1000",
+      "bol.carrier": "Acme Freight",
+    });
+
+    const plain = (async () =>
+      responsesMessage('{"explanation": "ok", "flagged": false}')) as unknown as typeof fetch;
+    const bare = await new RealSparkAdapter({ fetchImpl: plain }).escalate({
+      readings: [],
+      crops: [],
+      question: "q",
+    });
+    assert.equal(bare.document, undefined);
+    assert.equal(bare.paperReadings, undefined);
+  });
+
   it("retries a 429 through the shared transport", async () => {
     let calls = 0;
     const fetchImpl = (async () => {

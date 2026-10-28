@@ -1,4 +1,5 @@
 import {
+  checkCrossDoc,
   createPipelineAdapters,
   decodeJpegToGray,
   decodePngToGray,
@@ -48,8 +49,21 @@ export const FRAME_JUDGE_QUESTION = [
   "When a field has no typed value, do not flag it.",
   'List fields you cannot read (blur, glare, skew) under "unreadable" instead of guessing.',
   'Also list fields you read but are unsure about under "low_confidence".',
+  'Set "document" to the doc type shown (bol, awb, invoice, packing, pod, label, or unknown),',
+  'and "readings" to every fieldId you read mapped to its PAPER value.',
   "Reply immediately with ONLY the JSON object.",
 ].join(" ");
+
+export const FRAME_CROSSDOC_FIELD_ID = "frame.crossdoc";
+
+/** Max document entries kept per session; oldest drops first. */
+export const MAX_SESSION_DOCS = 6;
+
+/** Max stored fields per document; the judge reads a handful. */
+export const MAX_DOC_FIELDS = 40;
+
+/** Sessions idle this long lose their frame memory (docs, dedupe, budget). */
+export const SESSION_IDLE_MS = 30 * 60_000;
 
 export type FrameRejectError = "bad_frame_mime" | "bad_frame_base64" | "frame_too_large";
 
@@ -86,21 +100,120 @@ export function parseFrameDataUrl(
   return { frame: { mime, bytes: new Uint8Array(bytes) } };
 }
 
-/** Per-session frame state: last judged keyframe plus the call budget. */
+/**
+ * Paper fields read from one document, keyed by doc type. No image
+ * bytes: only the strings the judge reported, plus the keyframe hash
+ * that produced them.
+ */
+export interface SessionDocument {
+  docType: string;
+  fields: Record<string, string>;
+  hash: string;
+  updatedMs: number;
+}
+
+/** Per-session frame state: memory, last keyframe, and call budget. */
 export interface SessionFrameState {
   lastDhash: bigint | null;
   callTimestamps: number[];
+  documents: Map<string, SessionDocument>;
+  lastSeenMs: number;
+  /** Failure signature of the last cross-doc verdict; "clean" or null. */
+  lastCrossDocKey: string | null;
 }
 
 const frameSessions = new Map<string, SessionFrameState>();
 
-export function frameStateFor(sessionId: string): SessionFrameState {
+export function frameStateFor(sessionId: string, nowMs: number = Date.now()): SessionFrameState {
   let state = frameSessions.get(sessionId);
   if (!state) {
-    state = { lastDhash: null, callTimestamps: [] };
+    state = {
+      lastDhash: null,
+      callTimestamps: [],
+      documents: new Map(),
+      lastSeenMs: nowMs,
+      lastCrossDocKey: null,
+    };
     frameSessions.set(sessionId, state);
   }
+  state.lastSeenMs = nowMs;
   return state;
+}
+
+/** Drop sessions idle past SESSION_IDLE_MS; returns the dropped count. */
+export function pruneFrameSessions(nowMs: number = Date.now()): number {
+  let dropped = 0;
+  for (const [sessionId, state] of frameSessions) {
+    if (nowMs - state.lastSeenMs > SESSION_IDLE_MS) {
+      frameSessions.delete(sessionId);
+      dropped++;
+    }
+  }
+  return dropped;
+}
+
+const DOC_TYPE_PATTERN = /^[a-z0-9-]{1,24}$/;
+
+/**
+ * Store one judged document's paper fields, refreshing its slot. Bare
+ * field names gain the doc-type prefix so validator pairs still match.
+ * Oldest entries drop past MAX_SESSION_DOCS; returns false without
+ * storing when the doc type or readings are unusable.
+ */
+export function storeFrameDocument(
+  state: SessionFrameState,
+  docType: string | undefined,
+  readings: Record<string, string> | undefined,
+  hash: string,
+  nowMs: number,
+): boolean {
+  if (docType === undefined || readings === undefined) return false;
+  const type = docType.trim().toLowerCase();
+  if (!DOC_TYPE_PATTERN.test(type)) return false;
+  const fields: Record<string, string> = {};
+  for (const [key, value] of Object.entries(readings)) {
+    if (Object.keys(fields).length >= MAX_DOC_FIELDS) break;
+    const fieldId = key.includes(".") ? key : `${type}.${key}`;
+    fields[fieldId] = value;
+  }
+  if (Object.keys(fields).length === 0) return false;
+  state.documents.delete(type);
+  state.documents.set(type, { docType: type, fields, hash, updatedMs: nowMs });
+  while (state.documents.size > MAX_SESSION_DOCS) {
+    const oldest = state.documents.keys().next();
+    if (oldest.done) break;
+    state.documents.delete(oldest.value);
+  }
+  return true;
+}
+
+/**
+ * Run the cross-document validator over everything the session has
+ * seen. Publishes a conflict verdict when pairs disagree, a clean one
+ * when a past conflict resolves, and nothing otherwise. Pure lookup
+ * plus publish; costs no model calls.
+ */
+export function runSessionCrossDoc(sessionId: string, state: SessionFrameState): void {
+  if (state.documents.size < 2) return;
+  const merged: Record<string, string> = {};
+  for (const doc of state.documents.values()) Object.assign(merged, doc.fields);
+  const failures = checkCrossDoc(merged, { skipMissingInputs: true }).filter((c) => !c.passed);
+  const key = failures.length === 0 ? "clean" : failures.map((f) => f.fieldId).join(",");
+  if (failures.length === 0 && (state.lastCrossDocKey === null || state.lastCrossDocKey === "clean")) {
+    return;
+  }
+  state.lastCrossDocKey = key;
+  publishLiveVerdict(sessionId, {
+    fieldId: FRAME_CROSSDOC_FIELD_ID,
+    decision: "ALLOW",
+    state: failures.length === 0 ? "clean" : "mismatch",
+    failures: failures.map((failure) => ({
+      fieldId: failure.fieldId,
+      rule: failure.kind,
+      message: failure.detail ?? `${failure.fieldId} differs between documents`,
+    })),
+    ts: new Date().toISOString(),
+  });
 }
 
 /** Test-only reset for the in-memory frame state. */
@@ -145,6 +258,12 @@ export interface FrameCheckResult {
   /** Boxes the localizer returned; audit provenance, not crops. */
   boxes: number;
   latencyMs: number;
+  /** Stage split for latency work: localizer ms and judge ms. */
+  boxesMs: number;
+  judgeMs: number;
+  /** Document type and paper readings the judge reported, if any. */
+  document?: string;
+  readings?: Record<string, string>;
 }
 
 export interface FrameCheckInput {
@@ -222,6 +341,10 @@ export async function runFrameCheck(input: FrameCheckInput): Promise<FrameCheckR
     failures,
     boxes: boxes.crops.length,
     latencyMs: performance.now() - started,
+    boxesMs: boxes.latencyMs,
+    judgeMs: spark.latencyMs,
+    document: spark.document,
+    readings: spark.paperReadings,
   };
 }
 
@@ -240,7 +363,7 @@ export type FramePostOutcome =
   | { outcome: "undecodable" }
   | { outcome: "duplicate" }
   | { outcome: "throttled" }
-  | { outcome: "accepted"; done: Promise<FrameCheckResult | null> };
+  | { outcome: "accepted"; done: Promise<FrameCheckResult | null>; decodeMs: number };
 
 /**
  * Handle one posted frame through validation, decode, dedupe, throttle,
@@ -249,8 +372,11 @@ export type FramePostOutcome =
  * Throttled frames publish a visible throttled verdict, never a silent drop.
  */
 export function handleFramePost(input: FramePostInput): FramePostOutcome {
+  const nowMs = input.nowMs ?? Date.now();
+  pruneFrameSessions(nowMs);
   const parsed = parseFrameDataUrl(input.value);
   if ("error" in parsed) return { outcome: "rejected", error: parsed.error };
+  const decodeStarted = performance.now();
   let gray;
   try {
     gray =
@@ -260,11 +386,11 @@ export function handleFramePost(input: FramePostInput): FramePostOutcome {
   } catch {
     return { outcome: "undecodable" };
   }
-  const state = frameStateFor(input.sessionId);
+  const decodeMs = performance.now() - decodeStarted;
+  const state = frameStateFor(input.sessionId, nowMs);
   const dhash = dhash64(gray);
   if (isNearDuplicate(state.lastDhash, dhash)) return { outcome: "duplicate" };
   state.lastDhash = dhash;
-  const nowMs = input.nowMs ?? Date.now();
   if (!tryReserveFrameCalls(state, FRAME_MODEL_CALLS_PER_CHECK, nowMs)) {
     publishLiveVerdict(input.sessionId, {
       fieldId: FRAME_FIELD_ID,
@@ -293,6 +419,9 @@ export function handleFramePost(input: FramePostInput): FramePostOutcome {
         failures: result.failures,
         ts: new Date().toISOString(),
       });
+      if (storeFrameDocument(state, result.document, result.readings, hash, Date.now())) {
+        runSessionCrossDoc(input.sessionId, state);
+      }
       return result;
     },
     (error: unknown) => {
@@ -300,5 +429,5 @@ export function handleFramePost(input: FramePostInput): FramePostOutcome {
       return null;
     },
   );
-  return { outcome: "accepted", done };
+  return { outcome: "accepted", done, decodeMs };
 }

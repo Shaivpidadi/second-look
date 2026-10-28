@@ -12,13 +12,19 @@ import {
 } from "@second-look/pipeline";
 import {
   __resetFramePath,
+  FRAME_CROSSDOC_FIELD_ID,
   FRAME_FIELD_ID,
   FRAME_MODEL_CALLS_PER_CHECK,
   handleFramePost,
   isNearDuplicate,
+  MAX_DOC_FIELDS,
   MAX_FRAME_MODEL_CALLS_PER_MIN,
+  MAX_SESSION_DOCS,
   parseFrameDataUrl,
+  pruneFrameSessions,
   runFrameCheck,
+  SESSION_IDLE_MS,
+  storeFrameDocument,
   tryReserveFrameCalls,
   type SessionFrameState,
 } from "./frame-path.ts";
@@ -57,7 +63,13 @@ function stubAdapters(): PipelineAdapters {
 }
 
 function freshState(): SessionFrameState {
-  return { lastDhash: null, callTimestamps: [] };
+  return {
+    lastDhash: null,
+    callTimestamps: [],
+    documents: new Map(),
+    lastSeenMs: 0,
+    lastCrossDocKey: null,
+  };
 }
 
 function judgingSpark(output: Partial<SparkEscalationOutput>): SparkAdapter {
@@ -73,6 +85,42 @@ function judgingSpark(output: Partial<SparkEscalationOutput>): SparkAdapter {
       };
     },
   };
+}
+
+function judgingSparkSequence(outputs: Array<Partial<SparkEscalationOutput>>): SparkAdapter {
+  let at = 0;
+  return {
+    name: "fake-sequence",
+    async escalate(_input: SparkEscalationInput): Promise<SparkEscalationOutput> {
+      const partial = outputs[Math.min(at, outputs.length - 1)]!;
+      at++;
+      return {
+        explanation: "fake",
+        proposedFixes: [],
+        latencyMs: 1,
+        costUsd: 0,
+        ...partial,
+      };
+    },
+  };
+}
+
+async function postFrame(
+  sessionId: string,
+  index: number,
+  spark: SparkAdapter,
+  nowMs?: number,
+): Promise<void> {
+  const frame = stripeFrame(index);
+  const posted = handleFramePost({
+    sessionId,
+    value: jpegDataUrl(frame.gray, frame.width, frame.height),
+    typedValues: {},
+    adapters: { ...stubAdapters(), spark },
+    nowMs,
+  });
+  assert.equal(posted.outcome, "accepted");
+  if (posted.outcome === "accepted") await posted.done;
 }
 
 test("frame: parses valid JPEG and PNG data URLs", () => {
@@ -246,6 +294,112 @@ test("frame: corrupt images and bad values never reach the judge", () => {
     adapters,
   });
   assert.deepEqual(rejected, { outcome: "rejected", error: "bad_frame_mime" });
+});
+
+test("frame: a second document triggers a cross-doc conflict verdict", async () => {
+  __resetFramePath();
+  __resetLiveVerdictBus();
+  const sessionId = "frame-crossdoc";
+  const seen: PublishedVerdict[] = [];
+  subscribeLiveVerdicts(sessionId, (verdict) => seen.push(verdict));
+  const spark = judgingSparkSequence([
+    {
+      judgment: { flagged: false, failures: [] },
+      document: "bol",
+      paperReadings: { "bol.weightKg": "1000" },
+    },
+    {
+      judgment: { flagged: false, failures: [] },
+      document: "awb",
+      paperReadings: { "awb.weightKg": "2000" },
+    },
+  ]);
+  await postFrame(sessionId, 0, spark);
+  await postFrame(sessionId, 1, spark);
+  const cross = seen.filter((v) => v.fieldId === FRAME_CROSSDOC_FIELD_ID);
+  assert.equal(cross.length, 1);
+  assert.equal(cross[0]?.state, "mismatch");
+  assert.equal(cross[0]?.decision, "ALLOW");
+  assert.equal(cross[0]?.failures[0]?.fieldId, "awb.weightKg");
+  assert.equal(
+    cross[0]?.failures[0]?.message,
+    "BOL weight 1000kg vs AWB weight 2000kg (tolerance 0kg)",
+  );
+});
+
+test("frame: consistent pair stays quiet, conflict then resolution publish", async () => {
+  __resetFramePath();
+  __resetLiveVerdictBus();
+  const sessionId = "frame-crossdoc-quiet";
+  const seen: PublishedVerdict[] = [];
+  subscribeLiveVerdicts(sessionId, (verdict) => seen.push(verdict));
+  const spark = judgingSparkSequence([
+    { judgment: { flagged: false, failures: [] }, document: "bol", paperReadings: { "bol.weightKg": "1000" } },
+    { judgment: { flagged: false, failures: [] }, document: "awb", paperReadings: { "awb.weightKg": "1000" } },
+    { judgment: { flagged: false, failures: [] }, document: "awb", paperReadings: { "awb.weightKg": "2000" } },
+    { judgment: { flagged: false, failures: [] }, document: "awb", paperReadings: { "awb.weightKg": "1000" } },
+  ]);
+  await postFrame(sessionId, 0, spark);
+  await postFrame(sessionId, 1, spark);
+  assert.deepEqual(
+    seen.filter((v) => v.fieldId === FRAME_CROSSDOC_FIELD_ID),
+    [],
+  );
+  await postFrame(sessionId, 2, spark);
+  await postFrame(sessionId, 3, spark);
+  assert.deepEqual(
+    seen.filter((v) => v.fieldId === FRAME_CROSSDOC_FIELD_ID).map((v) => v.state),
+    ["mismatch", "clean"],
+  );
+});
+
+test("frame: bare reading names gain the doc-type prefix", () => {
+  const state = freshState();
+  assert.equal(
+    storeFrameDocument(state, "BOL", { weightKg: "1000" }, "h1", 0),
+    true,
+  );
+  assert.deepEqual(state.documents.get("bol")?.fields, { "bol.weightKg": "1000" });
+  assert.equal(storeFrameDocument(state, "awb", { "awb.weightKg": "2000" }, "h2", 0), true);
+  assert.equal(state.documents.size, 2);
+});
+
+test("frame: document memory caps entries, fields, and rejects junk", () => {
+  const state = freshState();
+  for (let i = 0; i < MAX_SESSION_DOCS + 2; i++) {
+    assert.equal(storeFrameDocument(state, `doc-${i}`, { [`f${i}`]: "v" }, `h${i}`, i), true);
+  }
+  assert.equal(state.documents.size, MAX_SESSION_DOCS);
+  assert.equal(state.documents.has("doc-0"), false);
+  assert.equal(state.documents.has(`doc-${MAX_SESSION_DOCS + 1}`), true);
+  const many: Record<string, string> = {};
+  for (let i = 0; i < MAX_DOC_FIELDS + 10; i++) many[`k${i}`] = "v";
+  assert.equal(storeFrameDocument(state, "big", many, "h", 0), true);
+  assert.equal(Object.keys(state.documents.get("big")?.fields ?? {}).length, MAX_DOC_FIELDS);
+  assert.equal(storeFrameDocument(state, "BOL!!!", { a: "b" }, "h", 0), false);
+  assert.equal(storeFrameDocument(state, undefined, { a: "b" }, "h", 0), false);
+  assert.equal(storeFrameDocument(state, "bol", undefined, "h", 0), false);
+  assert.equal(storeFrameDocument(state, "bol", {}, "h", 0), false);
+});
+
+test("frame: idle sessions lose their document memory", async () => {
+  __resetFramePath();
+  __resetLiveVerdictBus();
+  const sessionId = "frame-expiry";
+  const seen: PublishedVerdict[] = [];
+  subscribeLiveVerdicts(sessionId, (verdict) => seen.push(verdict));
+  const spark = judgingSparkSequence([
+    { judgment: { flagged: false, failures: [] }, document: "bol", paperReadings: { "bol.weightKg": "1000" } },
+    { judgment: { flagged: false, failures: [] }, document: "awb", paperReadings: { "awb.weightKg": "2000" } },
+  ]);
+  await postFrame(sessionId, 0, spark, 0);
+  await postFrame(sessionId, 1, spark, SESSION_IDLE_MS + 1);
+  assert.deepEqual(
+    seen.filter((v) => v.fieldId === FRAME_CROSSDOC_FIELD_ID),
+    [],
+  );
+  assert.equal(pruneFrameSessions(SESSION_IDLE_MS * 3), 1);
+  assert.equal(pruneFrameSessions(SESSION_IDLE_MS * 3), 0);
 });
 
 test("frame: over-budget frames publish a visible throttled verdict", async () => {
