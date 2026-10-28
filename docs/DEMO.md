@@ -77,8 +77,8 @@ call to explain and propose the fix."
 
 Screen: /demo moment 2: invoice says 363, packing list says 365.
 Say: "Paper matches typed, but the documents disagree with each
-other. Flag on the cross-doc gap, escalated to Spark."
-Overlay: "flagged in 4.9s end to end (measured live); 1 keyframe
+other. Warn on the cross-doc gap, escalated to Spark."
+Overlay: "warned in 4.9s end to end (measured live); 1 keyframe
 of 15 scanned; one Spark escalation plus SAM boxes per check."
 
 ### Shot 5, 1:30 to 1:50: dashboard
@@ -105,7 +105,7 @@ digits, diff-free cross-doc gaps, notes everywhere, blur/glare/skew):
 
 | arm | split | precision | recall | latency | cost |
 | --- | --- | ---: | ---: | ---: | ---: |
-| check-digit-only | hard 40 | 100.0% | 39.4% | 0ms | $0 |
+| check-digit-only | hard 40 | 100.0% | 39.4% | <1ms | $0 |
 | tiered-real | std 100 | 100.0% | 98.8% | 3118ms | † |
 | single-model-real | hard 40 | 100.0% | 100.0% | 1849ms | $0.086 |
 | vision-real | hard 40 | 100.0% | 100.0% | 2857ms | $0.61 |
@@ -140,7 +140,7 @@ plus one shaded take.
 1. `awb-closeup` (8s): slow push toward an AWB number block, hold
    3s. Pairs with the block+fix beat.
 2. `pod-note` (8s): pan across a POD exception note ("2 cartons
-   damaged" or similar), hold 3s. Pairs with the flag+claim beat.
+   damaged" or similar), hold 3s. Pairs with the warn+claim beat.
 3. `label-shelf` (6s): pallet SSCC label at a slight angle.
    Pairs with the crop/box overlay.
 4. `desk-wide` (6s): stack of the six doc types, slow pan. Title

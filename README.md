@@ -40,7 +40,7 @@ submissions before they leave the dock.
 
 Measured results are in the eval table below: 98.8 to 100% recall
 at roughly $0.003 per text form, and end-to-end checks under 5
-seconds live (3.4s block with fix, 4.9s flag with escalation).
+seconds live (3.4s block with fix, 4.9s warn with escalation).
 
 ## Architecture
 
@@ -146,14 +146,14 @@ recall to 39.4% while diff-aware arms hold 100%. Latest numbers:
 
 | arm | split | flagged | precision | recall | avg latency | cost |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
-| check-digit-only | std 100 | 48 | 100.0% | 60.0% | 0.0ms | $0.0000 |
-| single-model (stubbed) | std 100 | 79 | 100.0% | 98.8% | 0.0ms | $0.2500 |
-| tiered (stubbed) | std 100 | 79 | 100.0% | 98.8% | 0.0ms | $0.2100 |
+| check-digit-only | std 100 | 48 | 100.0% | 60.0% | <1ms | $0.0000 |
+| single-model (stubbed) | std 100 | 79 | 100.0% | 98.8% | <1ms | $0.2500 |
+| tiered (stubbed) | std 100 | 79 | 100.0% | 98.8% | <1ms | $0.2100 |
 | single-model-real | std 100 | 79 | 100.0% | 98.8% | 1897.4ms | † |
 | tiered-real | std 100 | 79 | 100.0% | 98.8% | 3117.7ms | † |
-| check-digit-only | hard 40 | 13 | 100.0% | 39.4% | 0.0ms | $0.0000 |
-| single-model (stubbed) | hard 40 | 33 | 100.0% | 100.0% | 0.0ms | $0.1000 |
-| tiered (stubbed) | hard 40 | 33 | 100.0% | 100.0% | 0.0ms | $0.1000 |
+| check-digit-only | hard 40 | 13 | 100.0% | 39.4% | <1ms | $0.0000 |
+| single-model (stubbed) | hard 40 | 33 | 100.0% | 100.0% | <1ms | $0.1000 |
+| tiered (stubbed) | hard 40 | 33 | 100.0% | 100.0% | <1ms | $0.1000 |
 | single-model-real | hard 40 | 33 | 100.0% | 100.0% | 1848.5ms | $0.0855 |
 | tiered-real | hard 40 | 33 | 100.0% | 100.0% | 4438.4ms | $0.1276 |
 | vision-real | hard 40 | 33 | 100.0% | 100.0% | 2856.9ms | $0.6106 |
@@ -182,13 +182,13 @@ through the same crop -> validators -> Glimmer -> Spark path live
 glasses would use. A local verdict streams in ~200ms while the crop
 runs; exactly one image-grounded Spark escalation refines it, so
 end-to-end checks land under 5s live (3.4s block with fix, 4.9s
-flag with escalation, 0 retries). Crop and verdict caches are
+warn with escalation, 0 retries). Crop and verdict caches are
 shared across the run, so repeat frames cost nothing. The four
 checks are:
 
 - swapped AWB digit -> block + fix
 - bad check digit with models off -> still blocks (validators alone)
-- invoice vs packing qty gap -> flag + Spark escalation
+- invoice vs packing qty gap -> warn + Spark escalation
 - "2 cartons damaged" on POD -> claim draft
 
 It reports end-to-end latency per check against the <5s target and writes
