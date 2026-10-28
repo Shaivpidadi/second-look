@@ -156,7 +156,7 @@ recall to 39.4% while diff-aware arms hold 100%. Latest numbers:
 | tiered (stubbed) | hard 40 | 33 | 100.0% | 100.0% | <1ms | $0.1000 |
 | single-model-real | hard 40 | 33 | 100.0% | 100.0% | 1848.5ms | $0.0855 |
 | tiered-real | hard 40 | 33 | 100.0% | 100.0% | 4438.4ms | $0.1276 |
-| vision-real | hard 40 | 33 | 100.0% | 100.0% | 2856.9ms | $0.6106 |
+| vision-real | hard 40 | 33 | 100.0% | 100.0% | 3085.7ms | $0.6169 |
 
 † ~$0.46 combined upper bound for both standard real arms,
 re-priced from batch-6 token totals (82.6K in / 84.8K out; per-arm

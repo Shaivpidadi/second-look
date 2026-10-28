@@ -93,7 +93,7 @@ const EVAL_ROWS = [
   { arm: "check-digit-only", split: "hard 40", precision: "100.0%", recall: "39.4%", latency: "<1ms", cost: "$0" },
   { arm: "single-model-real", split: "hard 40", precision: "100.0%", recall: "100.0%", latency: "1849ms", cost: "$0.086" },
   { arm: "tiered-real", split: "hard 40", precision: "100.0%", recall: "100.0%", latency: "4438ms", cost: "$0.128" },
-  { arm: "vision-real", split: "hard 40", precision: "100.0%", recall: "100.0%", latency: "2857ms", cost: "$0.61" },
+  { arm: "vision-real", split: "hard 40", precision: "100.0%", recall: "100.0%", latency: "3086ms", cost: "$0.62" },
   { arm: "tiered-real", split: "std 100", precision: "100.0%", recall: "98.8%", latency: "3118ms", cost: "†" },
 ];
 

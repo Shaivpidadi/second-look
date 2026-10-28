@@ -108,7 +108,7 @@ digits, diff-free cross-doc gaps, notes everywhere, blur/glare/skew):
 | check-digit-only | hard 40 | 100.0% | 39.4% | <1ms | $0 |
 | tiered-real | std 100 | 100.0% | 98.8% | 3118ms | † |
 | single-model-real | hard 40 | 100.0% | 100.0% | 1849ms | $0.086 |
-| vision-real | hard 40 | 100.0% | 100.0% | 2857ms | $0.61 |
+| vision-real | hard 40 | 100.0% | 100.0% | 3086ms | $0.62 |
 
 † ~$0.46 combined upper bound for both standard real arms
 (batch-6 token totals; per-arm split unrecorded).
