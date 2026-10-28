@@ -47,9 +47,9 @@ export function fieldLabel(fieldId: string): string {
 
 const BLOCK_REASONS: Record<string, string> = {
   awb_check_digit: "AWB check digit",
-  container_check_digit: "container check digit",
+  container_check_digit: "Container check digit",
   sscc_check_digit: "SSCC check digit",
-  count_mismatch: "count mismatch",
+  count_mismatch: "Count mismatch",
 };
 
 function prettifyCode(code: string): string {
@@ -62,8 +62,8 @@ export function actionLabel(action: string): string {
   if (action === "claim_draft") return "claim drafted";
   if (action === "fix_proposed") return "fix proposed";
   if (action === "escalation") return "escalated to Spark";
-  if (action === "flag:cross_doc") return "flagged: documents disagree";
-  if (action === "flag:handwriting") return "flagged: handwriting";
+  if (action === "flag:cross_doc") return "warned: documents disagree";
+  if (action === "flag:handwriting") return "warned: handwriting";
   if (action === "needs_human:unreadable") return "sent to human: unreadable";
   if (action.startsWith("submit_block:")) {
     const rule = action.slice("submit_block:".length);

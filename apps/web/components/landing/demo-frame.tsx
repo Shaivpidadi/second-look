@@ -37,7 +37,7 @@ export function DemoFrame() {
             </div>
             <div className="absolute top-[50%] left-[4%] h-[11%] w-[20%] rounded-[3px] border-[1.5px] border-accent/70 bg-accent/[0.07]">
               <span className="absolute -bottom-4 left-0 rounded-sm bg-accent/90 px-1 font-mono text-[9px] leading-3.5 text-white">
-                origin
+                Origin
               </span>
             </div>
           </div>
@@ -50,7 +50,7 @@ export function DemoFrame() {
             <div>
               <p className="font-sans text-[10px] text-ink-faint">AWB number</p>
               <p className="mt-0.5 rounded border border-block/40 bg-block/10 px-1.5 py-1 text-block tabular">
-                14779271345
+                87915411921
               </p>
             </div>
             <div>
@@ -71,7 +71,7 @@ export function DemoFrame() {
       <div className="flex items-center gap-2 border-t border-line bg-sunken px-3 py-2">
         <Badge tone="block">Blocked</Badge>
         <p className="truncate font-mono text-[10px] text-ink-dim tabular">
-          AWB number check digit · fix 17479271345 · 3.2s
+          AWB number check digit · fix 87915419121 · 3.2s
         </p>
       </div>
     </div>

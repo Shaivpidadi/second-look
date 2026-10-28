@@ -131,13 +131,13 @@ describe("selectRunStats", () => {
     assert.equal(tiers.sparkCalls, 22);
   });
 
-  it("shows every non-clean status in the first screenful, newest first", () => {
+  it("leads with blocked, warn, and needs-human before any pass", () => {
     const { entries } = buildDemoDataset(Date.now());
     const runs = groupRuns(entries);
-    const firstEight = runs.slice(0, 8).map((run) => run.verdict);
-    for (const verdict of ["blocked", "mismatch", "needs-human"]) {
-      assert.ok(firstEight.includes(verdict), `first 8 rows miss ${verdict}`);
-    }
+    assert.deepEqual(
+      runs.slice(0, 3).map((run) => run.verdict),
+      ["blocked", "mismatch", "needs-human"],
+    );
     const timestamps = runs.map((run) => run.ts);
     const sorted = [...timestamps].sort().reverse();
     assert.deepEqual(timestamps, sorted);

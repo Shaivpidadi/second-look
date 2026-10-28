@@ -623,7 +623,10 @@ export default function Dashboard() {
                                 >
                                   {fieldLabel(entry.fieldId)}
                                 </TableCell>
-                                <TableCell className="max-w-48 truncate font-mono text-[13px] tabular">
+                                <TableCell
+                                  className="max-w-48 truncate font-mono text-[13px] tabular"
+                                  title={entry.typedValue ?? "n/a"}
+                                >
                                   {entry.typedValue ?? "n/a"}
                                 </TableCell>
                                 <TableCell>
@@ -753,7 +756,10 @@ function ChecksTable({
               <TableCell className="text-ink-dim">
                 {first ? docType(first.fieldId) : "n/a"}
               </TableCell>
-              <TableCell className="max-w-44 truncate font-mono text-[13px] tabular">
+              <TableCell
+                className="max-w-44 truncate font-mono text-[13px] tabular"
+                title={referenceLabel(first?.fieldId, first?.typedValue)}
+              >
                 {referenceLabel(first?.fieldId, first?.typedValue)}
               </TableCell>
               <TableCell className="text-[13px] text-ink-dim">{modelLabel(run)}</TableCell>
@@ -875,7 +881,7 @@ function CheckDrawer({ run, onClose }: { run: CheckRun; onClose: () => void }) {
               {run.entries.map((entry, i) => (
                 <li
                   key={`${entry.ts}-${i}`}
-                  className="flex items-center gap-2 font-mono text-xs tabular"
+                  className="flex items-start gap-2 font-mono text-xs tabular"
                 >
                   <StatusDot
                     tone={
@@ -890,9 +896,9 @@ function CheckDrawer({ run, onClose }: { run: CheckRun; onClose: () => void }) {
                               : "idle"
                     }
                   />
-                  <span className="text-ink-faint">{formatTime(entry.ts)}</span>
+                  <span className="shrink-0 text-ink-faint">{formatTime(entry.ts)}</span>
                   <span
-                    className="truncate text-ink-dim"
+                    className="min-w-0 text-ink-dim"
                     title={`${entry.fieldId} → ${entry.action}`}
                     data-field-id={entry.fieldId}
                     data-action={entry.action}
@@ -922,20 +928,29 @@ function LatencyChart({ runs }: { runs: CheckRun[] }) {
   }
   const ordered = [...runs].reverse();
   const max = Math.max(1, ...ordered.map((run) => run.latencyMs));
+  const hasSubMs = ordered.some((run) => run.latencyMs < 1);
   return (
-    <div
-      className="flex h-24 items-end gap-[3px]"
-      role="img"
-      aria-label={`Latency bar chart over ${runs.length} checks`}
-    >
-      {ordered.map((run) => (
-        <div
-          key={run.ts}
-          title={`${verdictLabel(run.verdict)} · ${formatLatency(run.latencyMs)}`}
-          style={{ height: `${Math.max(6, (run.latencyMs / max) * 100)}%` }}
-          className={cn("min-w-0 flex-1 rounded-sm", VERDICT_BAR[run.verdict] ?? "bg-white/15")}
-        />
-      ))}
+    <div>
+      <div
+        className="flex h-24 items-end gap-[3px]"
+        role="img"
+        aria-label={`Latency bar chart over ${runs.length} checks`}
+      >
+        {ordered.map((run) => (
+          <div
+            key={run.ts}
+            title={`${verdictLabel(run.verdict)} · ${formatLatency(run.latencyMs)}`}
+            style={{ height: `${Math.max(6, (run.latencyMs / max) * 100)}%` }}
+            className={cn("min-w-0 flex-1 rounded-sm", VERDICT_BAR[run.verdict] ?? "bg-white/15")}
+          />
+        ))}
+      </div>
+      {hasSubMs && (
+        <p className="mt-2 flex items-center gap-1.5 text-xs text-ink-faint">
+          <span className="inline-block h-1.5 w-1.5 rounded-full bg-pass/70" aria-hidden />
+          Dot-sized bars are validator-only checks (&lt;1ms).
+        </p>
+      )}
     </div>
   );
 }

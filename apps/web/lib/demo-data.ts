@@ -189,25 +189,18 @@ export function buildDemoDataset(baseTs: number): { entries: DemoAuditEntry[]; c
     specs[i] = specs[j] as RunSpec;
     specs[j] = a;
   }
-  // Guarantee the first screenful shows every non-clean status: swap
-  // a missing verdict in from later, keeping timestamps positional
-  // so the table stays honestly newest-first.
-  const FIRST_SCREEN = 8;
-  for (const verdict of ["blocked", "mismatch", "needs-human"] as const) {
-    const covered = specs.slice(0, FIRST_SCREEN).some((spec) => spec.verdict === verdict);
-    if (covered) continue;
-    const donor = specs.findIndex(
-      (spec, i) => i >= FIRST_SCREEN && spec.verdict === verdict,
-    );
-    const recipient = specs.findIndex(
-      (spec, i) => i < FIRST_SCREEN && spec.verdict === "clean",
-    );
-    if (donor !== -1 && recipient !== -1) {
-      const a = specs[donor] as RunSpec;
-      specs[donor] = specs[recipient] as RunSpec;
-      specs[recipient] = a;
-    }
-  }
+  // Guarantee the top rows show every non-clean status before any
+  // Pass: swap one blocked, one mismatch, and one needs-human run to
+  // the front in severity order. Timestamps stay positional, so the
+  // table is honestly newest-first and counts are untouched.
+  const LEAD = ["blocked", "mismatch", "needs-human"] as const;
+  LEAD.forEach((verdict, slot) => {
+    const donor = specs.findIndex((spec, i) => i >= slot && spec.verdict === verdict);
+    if (donor === -1 || donor === slot) return;
+    const a = specs[slot] as RunSpec;
+    specs[slot] = specs[donor] as RunSpec;
+    specs[donor] = a;
+  });
   // Spread runs over the last 8 hours, newest first, with seconds
   // randomized so timestamps do not share one clock reading.
   const entries: DemoAuditEntry[] = [];

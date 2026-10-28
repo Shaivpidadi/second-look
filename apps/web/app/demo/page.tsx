@@ -26,6 +26,13 @@ interface LiveSubmit {
   claim: { carrier: string; bolRef: string; damagedQty: number | null; amount: string } | null;
 }
 
+const TONE_LABEL: Record<FixtureCard["tone"], string> = {
+  block: "Blocked",
+  warn: "Warn",
+  pass: "Pass",
+  info: "Info",
+};
+
 function LiveCard({ card, i }: { card: FixtureCard; i: number }) {
   const reduce = useReducedMotion();
   return (
@@ -44,7 +51,7 @@ function LiveCard({ card, i }: { card: FixtureCard; i: number }) {
     >
       <div className="flex items-center justify-between gap-2">
         <span className="font-mono text-[10px] uppercase tracking-wide text-ink-faint">{card.from}</span>
-        <Badge tone={card.tone === "info" ? "info" : card.tone}>{card.tone}</Badge>
+        <Badge tone={card.tone === "info" ? "info" : card.tone}>{TONE_LABEL[card.tone]}</Badge>
       </div>
       <p className="mt-1.5 text-sm font-medium text-ink">{card.title}</p>
       <p className="mt-0.5 line-clamp-2 text-xs leading-relaxed text-ink-dim">{card.body}</p>
