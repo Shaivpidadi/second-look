@@ -34,6 +34,12 @@ import {
 } from "../../components/ui/table";
 import { formatCost, formatCount, formatLatency, formatTime } from "../../lib/format";
 import { actionLabel, fieldLabel } from "../../lib/fields";
+import {
+  groupRuns,
+  selectRunStats,
+  type CheckRun as LibCheckRun,
+  type RunStats,
+} from "../../lib/dashboard-stats";
 import { buildDemoDataset } from "../../lib/demo-data";
 import { cn } from "../../lib/cn";
 
@@ -115,41 +121,7 @@ function docType(fieldId: string): string {
   return names[prefix] ?? "Other";
 }
 
-interface CheckRun {
-  ts: string;
-  entries: AuditEntry[];
-  verdict: string;
-  calls: ModelCall[];
-  latencyMs: number;
-  costUsd: number;
-}
-
-function groupRuns(entries: AuditEntry[]): CheckRun[] {
-  const groups = new Map<string, AuditEntry[]>();
-  for (const entry of entries) {
-    const list = groups.get(entry.ts) ?? [];
-    list.push(entry);
-    groups.set(entry.ts, list);
-  }
-  const rank = (verdict: string): number =>
-    verdict === "blocked" ? 3 : verdict === "needs-human" ? 2 : verdict === "mismatch" ? 1 : 0;
-  return [...groups.entries()]
-    .map(([ts, list]) => {
-      const calls = list.find((entry) => entry.modelCalls)?.modelCalls ?? [];
-      const worst = list.reduce((acc, entry) =>
-        rank(entry.verdict) > rank(acc) ? entry.verdict : acc,
-      list[0]?.verdict ?? "clean");
-      return {
-        ts,
-        entries: list,
-        verdict: worst,
-        calls,
-        latencyMs: calls.reduce((sum, call) => sum + call.latencyMs, 0),
-        costUsd: calls.reduce((sum, call) => sum + call.costUsd, 0),
-      };
-    })
-    .sort((a, b) => (a.ts < b.ts ? 1 : -1));
-}
+type CheckRun = LibCheckRun<AuditEntry>;
 
 /** Reference values with units so bare counts read as quantities. */
 function referenceLabel(fieldId: string | undefined, value: string | null | undefined): string {
@@ -166,13 +138,6 @@ function modelLabel(run: CheckRun): string {
   const glimmer = run.calls.find((call) => call.model === "glimmer");
   if (glimmer) return `Glimmer · ${adapterLabel(glimmer.adapter)}`;
   return "Validators";
-}
-
-function median(values: number[]): number {
-  if (values.length === 0) return 0;
-  const sorted = [...values].sort((a, b) => a - b);
-  const mid = Math.floor(sorted.length / 2);
-  return sorted.length % 2 === 0 ? (sorted[mid - 1]! + sorted[mid]!) / 2 : sorted[mid]!;
 }
 
 async function copyText(text: string): Promise<boolean> {
@@ -301,10 +266,7 @@ export default function Dashboard() {
       )
     : entries;
 
-  const blocked = runs.filter((run) => run.verdict === "blocked").length;
-  const warned = runs.filter((run) => run.verdict === "mismatch").length;
-  const medianLatency = median(runs.map((run) => run.latencyMs));
-  const totalCost = runs.reduce((sum, run) => sum + run.costUsd, 0);
+  const stats = useMemo(() => selectRunStats(runs), [runs]);
   const openRun = openCheck ? runs.find((run) => run.ts === openCheck) ?? null : null;
 
   function selectCheck(ts: string | null) {
@@ -324,10 +286,10 @@ export default function Dashboard() {
 
   const kpis = [
     { label: "Checks run", value: formatCount(runs.length), icon: ClipboardList },
-    { label: "Blocked", value: formatCount(blocked), icon: Ban },
-    { label: "Warned", value: formatCount(warned), icon: TriangleAlert },
-    { label: "p50 latency", value: formatLatency(medianLatency), icon: Activity },
-    { label: "Model cost", value: formatCost(totalCost), icon: CheckCircle2 },
+    { label: "Blocked", value: formatCount(stats.blocked), icon: Ban },
+    { label: "Warned", value: formatCount(stats.warn), icon: TriangleAlert },
+    { label: "p50 latency", value: formatLatency(stats.medianLatencyMs), icon: Activity },
+    { label: "Model cost", value: formatCost(stats.totalCostUsd), icon: CheckCircle2 },
   ];
 
   return (
@@ -452,7 +414,7 @@ export default function Dashboard() {
                           <div className="flex items-baseline justify-between">
                             <CardTitle>Latency per check</CardTitle>
                             <span className="font-mono text-xs text-ink-faint tabular">
-                              p50 {formatLatency(medianLatency)}
+                              p50 {formatLatency(stats.medianLatencyMs)}
                             </span>
                           </div>
                         </CardHeader>
@@ -465,7 +427,7 @@ export default function Dashboard() {
                           <CardTitle>Verdict breakdown</CardTitle>
                         </CardHeader>
                         <CardContent>
-                          <VerdictBreakdown runs={runs} />
+                          <VerdictBreakdown stats={stats} />
                         </CardContent>
                       </Card>
                     </div>
@@ -925,22 +887,20 @@ function LatencyChart({ runs }: { runs: CheckRun[] }) {
   );
 }
 
-function VerdictBreakdown({ runs }: { runs: CheckRun[] }) {
+function VerdictBreakdown({ stats }: { stats: RunStats }) {
   const rows = [
-    { verdict: "clean", label: "Pass", bar: "bg-pass/70" },
-    { verdict: "mismatch", label: "Warn", bar: "bg-warn/70" },
-    { verdict: "blocked", label: "Blocked", bar: "bg-block/70" },
-    { verdict: "needs-human", label: "Needs human", bar: "bg-needs/70" },
+    { label: "Pass", bar: "bg-pass/70", count: stats.pass },
+    { label: "Warn", bar: "bg-warn/70", count: stats.warn },
+    { label: "Blocked", bar: "bg-block/70", count: stats.blocked },
+    { label: "Needs human", bar: "bg-needs/70", count: stats.needsHuman },
   ];
-  const counts = new Map(rows.map((row) => [row.verdict, 0]));
-  for (const run of runs) counts.set(run.verdict, (counts.get(run.verdict) ?? 0) + 1);
-  const max = Math.max(1, ...counts.values());
+  const max = Math.max(1, ...rows.map((row) => row.count));
   return (
     <ul className="space-y-3 py-1">
       {rows.map((row) => {
-        const count = counts.get(row.verdict) ?? 0;
+        const count = row.count;
         return (
-          <li key={row.verdict} className="flex items-center gap-3">
+          <li key={row.label} className="flex items-center gap-3">
             <span className="w-24 shrink-0 text-[13px] text-ink-dim">{row.label}</span>
             <div className="h-2 min-w-0 flex-1 overflow-hidden rounded-full bg-white/[0.06]">
               <div
