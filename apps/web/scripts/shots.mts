@@ -6,8 +6,8 @@
  * every page at 1440x900 and key screens at 1920x1080 into docs/shots/.
  *
  * Run:  pnpm --filter @second-look/web build
- *       pnpm --filter @second-look/web start -- -p 3100 &
- *       node --experimental-strip-types apps/web/scripts/shots.ts
+ *       pnpm --filter @second-look/web exec next start -p 3100 &
+ *       node --experimental-strip-types apps/web/scripts/shots.mts
  */
 import { mkdirSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -114,6 +114,9 @@ async function main(): Promise<void> {
     await dash.getByRole("button", { name: "Claims" }).click();
     await dash.waitForTimeout(500);
     await shot(dash, "dashboard-claims-1440.png");
+    await dash.getByRole("button", { name: "Audit log" }).click();
+    await dash.waitForTimeout(500);
+    await shot(dash, "dashboard-audit-1440.png");
     await dash.getByRole("button", { name: "Eval" }).click();
     await dash.waitForTimeout(500);
     await shot(dash, "dashboard-eval-1440.png");

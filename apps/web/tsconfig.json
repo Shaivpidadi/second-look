@@ -24,6 +24,7 @@
   "extends": "../../tsconfig.base.json",
   "include": [
     "**/*.ts",
+    "**/*.mts",
     "**/*.tsx",
     "next-env.d.ts",
     ".next/types/**/*.ts"

@@ -24,7 +24,7 @@ packing mismatch, handwritten POD claim, clean submit.
 
 ```sh
 pnpm --filter @second-look/web build
-pnpm --filter @second-look/web start --port 3100
+pnpm --filter @second-look/web exec next start -p 3100
 # open http://127.0.0.1:3100/demo
 ```
 
@@ -35,7 +35,7 @@ pnpm --filter @second-look/web start --port 3100
   posts each moment's values to the real `/api/submit`.
 - Stills: `docs/shots/demo-title-1920.png` and
   `docs/shots/demo-step{1,2,3,4}-1920.png`, captured by
-  `apps/web/scripts/shots.ts` (Playwright, system Chrome).
+  `apps/web/scripts/shots.mts` (Playwright, system Chrome).
 
 ## Shot-by-shot script (2:30)
 
