@@ -1,4 +1,41 @@
-# Status — Batch 8 done: fast path, vision arm, demo prep (Oct 27)
+# Status — Batch 9 done: full UI redesign + /demo screen (Oct 28)
+
+## UI redesign: every page rebuilt, screenshot-verified
+
+Tailwind v4 theme, self-hosted Geist, lucide icons, motion, and a
+local `ui/` component set (Button, Card, Badge, Input, Select,
+Table, Tabs, Tooltip, Kbd, Separator, Skeleton, StatusDot). All
+existing APIs, SSE wiring, and tests untouched and green.
+
+- `/` landing: Revlon hook, JSX product miniature, 3 features,
+  measured-numbers strip (98.8% tiered recall std100, 100% vision
+  recall hard40, 39.4% validators-only, 3.2s first-verdict p50
+  qty-gap, $0.003/form tiered text — all from README/STATUS).
+- `/form`: grouped Shipment/Identifiers/Counts/Exception cards,
+  sticky live-verdict rail (SSE), inline errors, submit disabled
+  while live-blocked. Fixed a hydration mismatch (render-time
+  `crypto.randomUUID` -> client-side session id).
+- `/dashboard`: app shell (Overview/Checks/Claims/Audit/Eval),
+  KPI cards, checks table, row drawer (reasoning, paper-vs-typed
+  diff, audit trail), claim doc view, eval table with † footnote.
+- `/demo`: 1920x1080 record screen — POV with line-anchored crop
+  boxes + frame strip + detection log, typed values with paper
+  lines, streaming verdict cards, moments/stats/audit side panel,
+  10s title card, Right/Left/R stepping, `?record=1` chrome+cursor
+  hiding, fixture replay with live `/api/submit` toggle.
+- `apps/web/scripts/shots.ts` (Playwright + system Chrome; the
+  sandbox blocks browser installs and listening sockets, so shots
+  need one approved unsandboxed run): 15 PNGs in `docs/shots/`
+  at 1440x900 and 1920x1080, 2 critique-fix-reshoot rounds.
+  Note: `docs/shots/demo-step*.png` predate the final one-line
+  crop-chip move (left -> right anchor) by minutes; rebuild and
+  typecheck pass, re-shoot when approvals are available.
+
+Batch spend: 0 model API calls (UI fixtures + stub adapters only).
+`pnpm -r test`: 237 pass, 0 fail. `pnpm -r typecheck`: pass
+(5 projects). `next build`: pass.
+
+## Batch 8 done: fast path, vision arm, demo prep (Oct 27)
 
 ## Fast path: sub-5s first verdicts (with one stall)
 
