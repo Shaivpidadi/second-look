@@ -1,4 +1,47 @@
-# Status — Batch 9 done: full UI redesign + /demo screen (Oct 28)
+# Status — Batch 11 in progress: critique fixes, latency, demo script (Oct 28)
+
+## Batch 11 critique
+
+Harsh pass over all 15 screenshots in docs/shots, judged against
+Linear and Vercel dashboard quality:
+
+1. Landing hero mock: large gray dead area above the document in
+   the POV pane (photo backdrop reads as a broken image). Crop the
+   frame to the document and reposition the crop boxes.
+2. Landing mock status strip shows raw code
+   (`awb.awbNumber check_digit`). Humanize it.
+3. /form shows developer field paths (awb.awbNumber) next to every
+   label. Remove from visible UI, keep as ids and data attributes.
+4. /form invalid input still shows a blue focus ring over the red
+   border. Scope the invalid focus style so red wins.
+5. /form error text prefixes the raw rule code
+   (`awb_check_digit:`). Show the message only.
+6. /form live rail shows a raw field id plus rule tag, and the
+   card says "Pushed over SSE". Human labels and plain words.
+7. Dashboard KPI "Warned 20" counts entries while "Checks run 40"
+   counts runs. Count runs everywhere.
+8. Dashboard demo data is grouped by verdict over time (visible
+   color bands in the latency chart, first table page all clean)
+   and every timestamp ends in :45. Shuffle run order, randomize
+   seconds.
+9. Dashboard bare count references ("POD 100") are meaningless.
+   Add units.
+10. Dashboard drawer and audit log show raw field paths and
+    snake_case actions. Humanize; keep raw values in data
+    attributes and hover titles.
+11. /demo card footers still say "glimmer · stub". Fixtures must
+    say "glimmer · local".
+12. /demo leaks field paths in typed-field corners, crop chips,
+    card bodies, and audit entries. Human labels everywhere.
+13. /demo claim card body shows `damagedQty=2` code. Plain words.
+14. /demo audit fixture times (09:41) disagree with the REC clock.
+    Label entries by moment instead.
+
+Accepted as is: the verdict strip grows left to right as cards
+stream in (empty space is future cards); the eval page is short
+because the table is the whole report.
+
+## Batch 9 done: full UI redesign + /demo screen (Oct 28)
 
 ## UI redesign: every page rebuilt, screenshot-verified
 
