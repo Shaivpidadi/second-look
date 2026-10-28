@@ -37,46 +37,68 @@ pnpm --filter @second-look/web start --port 3100
   `docs/shots/demo-step{1,2,3,4}-1920.png`, captured by
   `apps/web/scripts/shots.ts` (Playwright, system Chrome).
 
-## Script
+## Shot-by-shot script (2:30)
 
-### 0:00 to 0:20: Cold open (problem)
+Record the app screens with `clips:demo -- --pace 800`, the /demo
+page, and the dashboard; cut in recorded POV where the shot list
+below has real footage, synthetic frames otherwise (always labelled
+SYNTHETIC). All numbers are measured; sources are STATUS.md and the
+README eval table.
 
-"Every air waybill gets typed by hand at least once. One swapped digit
-in the AWB number and the shipment sits at customs while someone
-re-keys eleven digits from a photo. Second Look checks the typing
-against the paper, live, through the glasses."
+### Shot 1, 0:00 to 0:15: hook
 
+Screen: /demo title card.
+Say: "In 2020 Citibank wired $900M to Revlon's lenders by mistake.
+The screen looked right. Nobody read it twice."
+Overlay: "Second Look reads the paperwork before you sign."
+
+### Shot 2, 0:15 to 0:35: glasses POV
+
+Screen: POV clip of the AWB (recorded footage, or clip-awb.mp4
+labelled SYNTHETIC), crop boxes localizing the number block.
+Say: "Every air waybill gets typed by hand at least once. The
+glasses watch the paper while a screen reader watches the typing."
 Overlay: `check-digit-only recall: 60.0% standard, 39.4% hard`.
-Validators alone miss most real errors.
+Say: "Validators alone miss most real errors."
 
-### 0:20 to 1:00: Live check 1: swapped AWB (block + fix)
+### Shot 3, 0:35 to 1:05: the catch, swapped AWB
 
-Run the replay (or recorded POV): typed AWB has two digits swapped.
+Screen: /demo moment 1, or the replay: typed AWB has two digits
+swapped. Verdict cards stream in.
+Say: "A local verdict streams in about two hundred milliseconds.
+One image-grounded Spark call refines it. Verdict: blocked, AWB
+check digit invalid, fix proposes the paper value."
+Overlay: "blocked in 3.4s end to end (measured live); fix correct
+in 10 of 12 live runs; the verdict itself is deterministic."
+Say: "Validators block instantly and for free. The model gets one
+call to explain and propose the fix."
 
-- First verdict streams in ~3-4s (measured p50 4280ms over 3 real
-  runs; one run hit a 284s API stall outlier).
-- Verdict BLOCKED: AWB check digit invalid. Fix proposes the paper
-  value (observed correct 9 of 11 live runs; verdict itself is
-  deterministic, wording varies).
-- Full refined verdict follows at ~11s p50 (3 keyframes of 15
-  scanned, image-grounded escalation, 2 spark-cache hits).
+### Shot 4, 1:05 to 1:30: the catch, qty gap
 
-Say: "Validators block instantly and for free; the model only gets
-called to explain and propose the fix."
+Screen: /demo moment 2: invoice says 363, packing list says 365.
+Say: "Paper matches typed, but the documents disagree with each
+other. Flag on the cross-doc gap, escalated to Spark."
+Overlay: "flagged in 4.9s end to end (measured live); 1 keyframe
+of 15 scanned; one Spark escalation plus SAM boxes per check."
 
-### 1:00 to 1:40: Live check 2: qty gap plus damage note (flag + claim)
+### Shot 5, 1:30 to 1:50: dashboard
 
-Second scenario: invoice says 363, packing list says 365, POD note
-reads "2 cartons damaged".
+Screen: /dashboard overview: 40 checks, latency chart, verdict
+breakdown; open one row to show reasoning, paper vs typed,
+and the audit trail.
+Say: "Every decision lands here with its reasoning, its latency
+and cost, and an append-only audit trail."
 
-- First verdict ~3.2s p50 (all 3 runs under 5s: 3241/4506/3084ms).
-- Verdict FLAG on the cross-doc gap, escalated to Spark.
-- Claim draft follows from the template: carrier + BOL ref,
-  damagedQty=2, `[AMOUNT TBD]` placeholder the adjuster must replace.
-- Repeat view is instant: shared caches serve the claim check in
-  ~340ms with zero new calls.
+### Shot 6, 1:50 to 2:05: claim draft
 
-### 1:40 to 2:20: The numbers (eval overlay)
+Screen: /demo moment 3, then the dashboard claim view.
+Say: "The POD note reads 2 cartons damaged. A claim draft follows:
+carrier plus BOL reference, 2 damaged, amount left for the adjuster."
+Overlay: claim body with `[AMOUNT TBD]` highlighted.
+
+### Shot 7, 2:05 to 2:25: the numbers
+
+Screen: eval table overlay.
 
 100-form standard corpus, 40-form hard corpus (near-miss check
 digits, diff-free cross-doc gaps, notes everywhere, blur/glare/skew):
@@ -91,12 +113,10 @@ digits, diff-free cross-doc gaps, notes everywhere, blur/glare/skew):
 † ~$0.46 combined upper bound for both standard real arms
 (batch-6 token totals; per-arm split unrecorded).
 
-\* Combined ~$0.46 upper bound for both standard real arms.
-
 Say: "Check digits alone collapse on the hard split. The tiered
-pipeline holds 98.8-100% recall at about a third of a cent per form
-for text, a cent and a half with full vision. The vision arm reads
-paper straight from degraded pixels, including five
+pipeline holds 98.8 to 100% recall at about a third of a cent per
+form for text, a cent and a half with full vision. The vision arm
+reads paper straight from degraded pixels, including five
 validator-blind near-miss forms, and abstains to needs-human when
 it cannot read a field."
 
@@ -104,18 +124,12 @@ Note: abstention is wired and tested; live runs so far report 0
 abstentions (the model reads through even 3x-stacked blur rather
 than abstaining). Do not claim abstentions were observed.
 
-### 2:20 to 2:50: Architecture in 30 seconds
+### Shot 8, 2:25 to 2:30: close
 
-"Validators first, always free. A local pass over crops. Cloud only
-on disagreement. One call per verdict: text first for speed, images
-for grounding. Keyframes cut fifteen frames to three; caches make
-repeats free; unreadable fields go to a human, never a silent pass."
-
-### 2:50 to 3:00: Close
-
-"What ships next: on-glasses recording, local Glimmer weights, and
-the single-keyframe fast path already landing first verdicts under
-five seconds."
+Screen: landing hero with the measured strip.
+Say: "Validators first, always free. A local pass over crops. Cloud
+only on disagreement, one call per verdict. What ships next:
+on-glasses recording and local Glimmer weights."
 
 ## Shot list for human-recorded backup clips
 

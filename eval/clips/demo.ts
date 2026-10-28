@@ -127,7 +127,7 @@ export async function runDemo(options: DemoOptions): Promise<boolean> {
     if (paceMs > 0) await sleep(paceMs);
   };
   const started = performance.now();
-  await say(0, "SECOND LOOK — backup demo replay (synthetic POV clips, not recorded footage)");
+  await say(0, "SECOND LOOK backup demo replay (synthetic POV clips, not recorded footage)");
   let pass = true;
   for (const scenario of DEMO_SCENARIOS) {
     const clip = join(options.clipsDir, scenario.clip);
@@ -166,7 +166,7 @@ export async function runDemo(options: DemoOptions): Promise<boolean> {
       await say(performance.now() - started, `MISMATCH: expected ${scenario.expect}, got ${run.verdict}`);
     }
   }
-  await say(performance.now() - started, "replay complete (see docs/DEMO.md for the 3-minute script)");
+  await say(performance.now() - started, "replay complete (see docs/DEMO.md for the shot-by-shot script)");
   return pass;
 }
 

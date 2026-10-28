@@ -1,14 +1,17 @@
 # Second Look
 
-Glasses watch the paper, a screen reader watches the typed values, and the
-system acts: it catches mismatches live, blocks submit, proposes fixes, logs
-an audit trail, and drafts damage claims.
+In 2020 Citibank wired $900M to Revlon's lenders by mistake. The screen
+looked right. Nobody read it twice. Second Look is the co-signer that
+reads the paperwork before you sign: glasses watch the paper, a screen
+reader watches the typed values, and the system acts. It catches
+mismatches live, blocks submit, proposes fixes, logs an audit trail,
+and drafts damage claims.
 
-A warehouse worker types data from logistics paperwork (bill of lading, air
-waybill, commercial invoice, packing list, proof of delivery, pallet SSCC
-label) into a receiving form. Second Look compares the paper against the
-typed values through a tiered pipeline and stops bad submissions before
-they leave the dock.
+A warehouse worker types data from logistics paperwork (bill of lading,
+air waybill, commercial invoice, packing list, proof of delivery, pallet
+SSCC label) into a receiving form. Second Look compares the paper
+against the typed values through a tiered pipeline and stops bad
+submissions before they leave the dock.
 
 ## Checks
 
@@ -19,6 +22,25 @@ they leave the dock.
 3. Cross-document: invoice qty vs. packing list, BOL weight vs. AWB, POD
    received vs. shipped count.
 4. Handwritten POD exceptions ("2 cartons damaged") become a claim draft.
+
+## How it uses Meta models
+
+- Muse Spark (`muse-spark-1.3`, Responses API) is the escalation
+  brain: one image-grounded call per check explains the mismatch and
+  proposes the paper value as the fix. The same model reads document
+  pixels directly in the vision eval arm (100% recall on the hard
+  split, including validator-blind forms) and localizes crop boxes
+  through the JSON-box fallback while SAM stays parked.
+- SAM 3.1 is the designed crop localizer behind the `SamAdapter`
+  interface, parked because it returns empty text for document
+  concepts; the swap back is one adapter.
+- Glimmer is the local-first tier by design: validators, then a
+  local pass that redacts PII, then cloud only on disagreement.
+  The stub serves until local weights land.
+
+Measured results are in the eval table below: 98.8 to 100% recall
+at roughly $0.003 per text form, and end-to-end checks under 5
+seconds live (3.4s block with fix, 4.9s flag with escalation).
 
 ## Architecture
 
@@ -154,14 +176,14 @@ card + tilted page with blur and handheld jitter) with JSON sidecars
 carrying the documented ground truth. Both clips open with a
 SYNTHETIC PLACEHOLDER card; real POV clips are a human task.
 
-`clips:e2e` samples each clip at 2 fps, picks up to 3 keyframes
-(sharpness + change detection), and streams verdicts through the same
-crop -> validators -> Glimmer -> Spark path live glasses would use.
-The sharpest keyframe takes the fast path (text verdict concurrent
-with the crop, then an image-grounded refinement); crop and verdict
-caches are shared across the run, so repeat frames cost nothing.
-Real-mode first verdicts land in ~3-4s p50 (see STATUS.md for the
-p50/p95 box); totals still miss <5s on escalating checks. The four
+`clips:e2e` samples each clip at 2 fps, picks the single sharpest
+keyframe (sharpness + change detection), and streams verdicts
+through the same crop -> validators -> Glimmer -> Spark path live
+glasses would use. A local verdict streams in ~200ms while the crop
+runs; exactly one image-grounded Spark escalation refines it, so
+end-to-end checks land under 5s live (3.4s block with fix, 4.9s
+flag with escalation, 0 retries). Crop and verdict caches are
+shared across the run, so repeat frames cost nothing. The four
 checks are:
 
 - swapped AWB digit -> block + fix
@@ -180,7 +202,7 @@ pnpm --filter @second-look/eval clips:e2e -- --models real
 ```
 
 One-command narrated replay for the screen-recorded backup demo
-(see `docs/DEMO.md` for the 3-minute script and shot list):
+(see `docs/DEMO.md` for the shot-by-shot script and shot list):
 
 ```sh
 pnpm --filter @second-look/eval clips:demo [-- --models real --pace 600]
