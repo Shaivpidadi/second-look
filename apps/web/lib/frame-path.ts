@@ -4,10 +4,15 @@ import {
   decodeJpegToGray,
   decodePngToGray,
   dhash64,
+  downscaleGray,
+  encodeGrayToJpeg,
   frameHash,
   hammingDistance,
+  inkDistance,
+  inkSignature,
   reduceVerdict,
   type PipelineAdapters,
+  type SamCropOutput,
 } from "@second-look/pipeline";
 import type { LiveVerdictFailure } from "./live-verdict.ts";
 import { publishLiveVerdict } from "./verdict-bus.ts";
@@ -26,6 +31,24 @@ export const MAX_FRAME_BYTES = 2_000_000;
 
 /** Min dhash bits changed since the last judged keyframe; matches selectKeyframes. */
 export const FRAME_CHANGE_THRESHOLD = 8;
+
+/**
+ * Max 16x16 ink distance that still counts as a duplicate. Calibrated on
+ * corpus renders: re-noised captures 0.05-0.07, 3px shift 0.51,
+ * same-type doc swap 0.58, cross-type swaps 2.5+. A duplicate older than
+ * REJUDGE_AFTER_MS is re-judged anyway, bounding same-type staleness.
+ */
+export const INK_DIFF_THRESHOLD = 0.55;
+
+/** Near-duplicate frames re-judge after this long without a verdict. */
+export const REJUDGE_AFTER_MS = 60_000;
+
+/** Model images downscale to this long side; dedupe still uses full pixels. */
+export const FRAME_JUDGE_LONG_SIDE = 768;
+
+/** Reply-contract keys that feed session document memory (no bias: placeholders). */
+export const FRAME_RESPONSE_KEYS =
+  ', "document": "bol|awb|invoice|packing|pod|label|unknown", "readings": {"<fieldId>": "<PAPER value>"}';
 
 /** Rolling per-session budget for frame-driven model calls. */
 export const MAX_FRAME_MODEL_CALLS_PER_MIN = 10;
@@ -112,9 +135,16 @@ export interface SessionDocument {
   updatedMs: number;
 }
 
+/** Dedupe key of the last judged keyframe: structure plus ink. */
+export interface FrameDedupeKey {
+  dhash: bigint;
+  ink: number[];
+}
+
 /** Per-session frame state: memory, last keyframe, and call budget. */
 export interface SessionFrameState {
-  lastDhash: bigint | null;
+  lastKey: FrameDedupeKey | null;
+  lastJudgeMs: number;
   callTimestamps: number[];
   documents: Map<string, SessionDocument>;
   lastSeenMs: number;
@@ -128,7 +158,8 @@ export function frameStateFor(sessionId: string, nowMs: number = Date.now()): Se
   let state = frameSessions.get(sessionId);
   if (!state) {
     state = {
-      lastDhash: null,
+      lastKey: null,
+      lastJudgeMs: 0,
       callTimestamps: [],
       documents: new Map(),
       lastSeenMs: nowMs,
@@ -221,13 +252,23 @@ export function __resetFramePath(): void {
   frameSessions.clear();
 }
 
-/** True when the frame is too close to the last judged keyframe to rerun. */
+/**
+ * True when the frame is too close to the last judged keyframe to
+ * rerun: both structurally (dhash) and photometrically (ink). dhash
+ * alone drops same-layout document swaps (measured 0-2 bits apart),
+ * so ink confirms.
+ */
 export function isNearDuplicate(
-  last: bigint | null,
-  next: bigint,
+  last: FrameDedupeKey | null,
+  next: FrameDedupeKey,
   threshold: number = FRAME_CHANGE_THRESHOLD,
+  inkThreshold: number = INK_DIFF_THRESHOLD,
 ): boolean {
-  return last !== null && hammingDistance(last, next) < threshold;
+  return (
+    last !== null &&
+    hammingDistance(last.dhash, next.dhash) < threshold &&
+    inkDistance(last.ink, next.ink) < inkThreshold
+  );
 }
 
 function pruneCalls(state: SessionFrameState, nowMs: number): void {
@@ -257,6 +298,8 @@ export interface FrameCheckResult {
   failures: LiveVerdictFailure[];
   /** Boxes the localizer returned; audit provenance, not crops. */
   boxes: number;
+  /** True when the localizer was skipped for a re-judged frame. */
+  boxesSkipped: boolean;
   latencyMs: number;
   /** Stage split for latency work: localizer ms and judge ms. */
   boxesMs: number;
@@ -272,27 +315,34 @@ export interface FrameCheckInput {
   frameHeight: number;
   typedValues: Record<string, string>;
   adapters: PipelineAdapters;
+  /** Skip the localizer when this exact frame was judged before. */
+  skipBoxes?: boolean;
+  /** Called when the localizer fails; the judge verdict still publishes. */
+  onBoxesError?: (error: unknown) => void;
 }
 
 /**
- * Judge one kept keyframe: localize the document (Spark boxes), then run
- * the image-grounded judge over the full frame. Unreadable or unsure
- * fields abstain to needs-human instead of passing silently.
+ * Judge one kept keyframe: localize the document (Spark boxes) and run
+ * the image-grounded judge over the full frame, concurrently: the
+ * judge never waits for boxes (they are audit provenance). Unreadable
+ * or unsure fields abstain to needs-human instead of passing silently.
  */
 export async function runFrameCheck(input: FrameCheckInput): Promise<FrameCheckResult> {
   const started = performance.now();
-  const boxes = await input.adapters.sam.crop({
-    image: input.image,
-    concept: FRAME_CONCEPT,
-    frameWidth: input.frameWidth,
-    frameHeight: input.frameHeight,
-  });
   const readings = Object.entries(input.typedValues).map(([fieldId, typedValue]) => ({
     fieldId,
     paperValue: null,
     typedValue,
   }));
-  const spark = await input.adapters.spark.escalate({
+  const boxesPromise = input.skipBoxes
+    ? Promise.resolve(null)
+    : input.adapters.sam.crop({
+        image: input.image,
+        concept: FRAME_CONCEPT,
+        frameWidth: input.frameWidth,
+        frameHeight: input.frameHeight,
+      });
+  const judgePromise = input.adapters.spark.escalate({
     readings,
     crops: [
       {
@@ -302,7 +352,17 @@ export async function runFrameCheck(input: FrameCheckInput): Promise<FrameCheckR
     ],
     question: FRAME_JUDGE_QUESTION,
     maxOutputTokens: FRAME_SPARK_MAX_TOKENS,
+    responseKeys: FRAME_RESPONSE_KEYS,
   });
+  const [boxesSettled, judgeSettled] = await Promise.allSettled([boxesPromise, judgePromise]);
+  if (judgeSettled.status === "rejected") throw judgeSettled.reason;
+  const spark = judgeSettled.value;
+  let boxes: SamCropOutput | null = null;
+  if (boxesSettled.status === "fulfilled") {
+    boxes = boxesSettled.value;
+  } else if (!input.skipBoxes) {
+    input.onBoxesError?.(boxesSettled.reason);
+  }
   const failures: LiveVerdictFailure[] = [];
   const fixes = new Map(
     spark.proposedFixes.map((fix) => [fix.fieldId, fix.paperValue]),
@@ -339,9 +399,10 @@ export async function runFrameCheck(input: FrameCheckInput): Promise<FrameCheckR
     state,
     decision: state === "blocked" ? "BLOCK" : "ALLOW",
     failures,
-    boxes: boxes.crops.length,
+    boxes: boxes?.crops.length ?? 0,
+    boxesSkipped: input.skipBoxes === true,
     latencyMs: performance.now() - started,
-    boxesMs: boxes.latencyMs,
+    boxesMs: boxes?.latencyMs ?? 0,
     judgeMs: spark.latencyMs,
     document: spark.document,
     readings: spark.paperReadings,
@@ -388,10 +449,20 @@ export function handleFramePost(input: FramePostInput): FramePostOutcome {
   }
   const decodeMs = performance.now() - decodeStarted;
   const state = frameStateFor(input.sessionId, nowMs);
-  const dhash = dhash64(gray);
-  if (isNearDuplicate(state.lastDhash, dhash)) return { outcome: "duplicate" };
-  state.lastDhash = dhash;
-  if (!tryReserveFrameCalls(state, FRAME_MODEL_CALLS_PER_CHECK, nowMs)) {
+  const key: FrameDedupeKey = { dhash: dhash64(gray), ink: inkSignature(gray) };
+  if (
+    isNearDuplicate(state.lastKey, key) &&
+    nowMs - state.lastJudgeMs < REJUDGE_AFTER_MS
+  ) {
+    return { outcome: "duplicate" };
+  }
+  state.lastKey = key;
+  const hash = frameHash(gray);
+  // Re-shown documents skip the localizer: boxes are audit provenance,
+  // and this exact frame was already localized once.
+  const skipBoxes = [...state.documents.values()].some((doc) => doc.hash === hash);
+  const calls = skipBoxes ? 1 : FRAME_MODEL_CALLS_PER_CHECK;
+  if (!tryReserveFrameCalls(state, calls, nowMs)) {
     publishLiveVerdict(input.sessionId, {
       fieldId: FRAME_FIELD_ID,
       decision: "ALLOW",
@@ -401,17 +472,31 @@ export function handleFramePost(input: FramePostInput): FramePostOutcome {
     });
     return { outcome: "throttled" };
   }
+  // The model sees a downscaled gray JPEG: fewer image tokens, same
+  // verdicts (see STATUS.md). Dedupe and memory hash full pixels.
+  let modelImage = parsed.frame.bytes;
+  let modelWidth = gray.width;
+  let modelHeight = gray.height;
+  const scaled = downscaleGray(gray, FRAME_JUDGE_LONG_SIDE);
+  if (scaled !== gray) {
+    modelImage = encodeGrayToJpeg(scaled.gray, scaled.width, scaled.height);
+    modelWidth = scaled.width;
+    modelHeight = scaled.height;
+  }
   const adapters = input.adapters ?? createPipelineAdapters();
   const typedValues = { ...input.typedValues };
-  const hash = frameHash(gray);
+  const onError = input.onError ?? console.error;
   const done = runFrameCheck({
-    image: parsed.frame.bytes,
-    frameWidth: gray.width,
-    frameHeight: gray.height,
+    image: modelImage,
+    frameWidth: modelWidth,
+    frameHeight: modelHeight,
     typedValues,
     adapters,
+    skipBoxes,
+    onBoxesError: (error) => onError(`frame boxes failed (hash ${hash})`, error),
   }).then(
     (result) => {
+      state.lastJudgeMs = nowMs;
       publishLiveVerdict(input.sessionId, {
         fieldId: FRAME_FIELD_ID,
         decision: result.decision,
@@ -419,13 +504,13 @@ export function handleFramePost(input: FramePostInput): FramePostOutcome {
         failures: result.failures,
         ts: new Date().toISOString(),
       });
-      if (storeFrameDocument(state, result.document, result.readings, hash, Date.now())) {
+      if (storeFrameDocument(state, result.document, result.readings, hash, nowMs)) {
         runSessionCrossDoc(input.sessionId, state);
       }
       return result;
     },
     (error: unknown) => {
-      (input.onError ?? console.error)(`frame check failed (hash ${hash})`, error);
+      onError(`frame check failed (hash ${hash})`, error);
       return null;
     },
   );

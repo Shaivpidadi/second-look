@@ -5,8 +5,11 @@ import {
   analyzeFrames,
   decodePngToGray,
   dhash64,
+  downscaleGray,
   frameHash,
   hammingDistance,
+  inkDistance,
+  inkSignature,
   selectKeyframes,
   sharpness,
   type DecodedGray,
@@ -196,5 +199,61 @@ describe("analyzeFrames", () => {
     assert.equal(a?.sharpness, 0);
     assert.ok((b?.sharpness ?? 0) > 0);
     assert.notEqual(a?.hash, b?.hash);
+  });
+});
+
+describe("inkSignature", () => {
+  it("maps flat images to flat cells", () => {
+    const white = inkSignature({ width: 32, height: 32, gray: new Uint8Array(1024).fill(255) });
+    assert.equal(white.length, 256);
+    assert.ok(white.every((cell) => cell === 0));
+    const black = inkSignature({ width: 32, height: 32, gray: new Uint8Array(1024).fill(0) });
+    assert.ok(black.every((cell) => cell === 255));
+  });
+
+  it("distances identical, near, and far images", () => {
+    const gray = new Uint8Array(1024).fill(200);
+    const base = { width: 32, height: 32, gray };
+    assert.equal(inkDistance(inkSignature(base), inkSignature(base)), 0);
+    const moved = new Uint8Array(gray);
+    moved.fill(0, 0, 128);
+    const near = inkDistance(inkSignature(base), inkSignature({ width: 32, height: 32, gray: moved }));
+    assert.ok(near > 0 && near < 255);
+    const black = inkDistance(
+      inkSignature(base),
+      inkSignature({ width: 32, height: 32, gray: new Uint8Array(1024).fill(0) }),
+    );
+    assert.ok(black > near);
+    assert.equal(inkDistance([1, 2], [1]), Number.POSITIVE_INFINITY);
+  });
+
+  it("rejects bad grids", () => {
+    const image = { width: 8, height: 8, gray: new Uint8Array(64) };
+    assert.throws(() => inkSignature(image, 0), /grid/);
+    assert.throws(() => inkSignature(image, 65), /grid/);
+  });
+});
+
+describe("downscaleGray", () => {
+  it("returns small images unchanged", () => {
+    const image = { width: 16, height: 8, gray: new Uint8Array(128).fill(100) };
+    assert.equal(downscaleGray(image, 768), image);
+  });
+
+  it("box-averages to the long side", () => {
+    const gray = new Uint8Array(64 * 32);
+    for (let y = 0; y < 32; y++) {
+      for (let x = 0; x < 64; x++) gray[y * 64 + x] = x < 32 ? 0 : 255;
+    }
+    const small = downscaleGray({ width: 64, height: 32, gray }, 16);
+    assert.equal(small.width, 16);
+    assert.equal(small.height, 8);
+    assert.equal(small.gray[0], 0);
+    assert.equal(small.gray[15], 255);
+  });
+
+  it("rejects tiny long sides", () => {
+    const image = { width: 64, height: 64, gray: new Uint8Array(4096) };
+    assert.throws(() => downscaleGray(image, 7), /maxLongSide/);
   });
 });

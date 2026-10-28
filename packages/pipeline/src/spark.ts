@@ -10,6 +10,12 @@ export interface SparkEscalationInput {
   question: string;
   /** Per-call `max_output_tokens` override; defaults to the adapter's cap. */
   maxOutputTokens?: number;
+  /**
+   * Extra `"key": example` pairs appended inside the reply-contract
+   * object, e.g. `, "document": "bol"`. Keys in the schema are
+   * honored far more reliably than keys only named in prose.
+   */
+  responseKeys?: string;
 }
 
 export interface SparkUsage {
@@ -316,7 +322,9 @@ export class RealSparkAdapter implements SparkAdapter {
       input.question,
       "Readings (paper vs typed):",
       ...readingLines,
-      'Reply with ONLY a JSON object, no other text: {"explanation": "...", "flagged": true|false, "failures": [{"fieldId": "...", "kind": "field_match|check_digit|cross_doc", "detail": "..."}], "fixes": [{"fieldId": "...", "correctedValue": "..."}]}.',
+      'Reply with ONLY a JSON object, no other text: {"explanation": "...", "flagged": true|false, "failures": [{"fieldId": "...", "kind": "field_match|check_digit|cross_doc", "detail": "..."}], "fixes": [{"fieldId": "...", "correctedValue": "..."}]' +
+        (input.responseKeys ?? "") +
+        "}.",
       "Set flagged=true when any reading differs paper-vs-typed or any values conflict per the question. For each differing field, set correctedValue to the PAPER value.",
     ].join("\n");
     const content: Array<Record<string, unknown>> = [{ type: "input_text", text: prompt }];

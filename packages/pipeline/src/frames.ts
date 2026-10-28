@@ -166,6 +166,72 @@ export function hammingDistance(a: bigint, b: bigint): number {
   return count;
 }
 
+/**
+ * Mean-darkness signature over a grid (default 16x16): each cell is the
+ * average (255 - luma) of its pixels. Averaging makes it robust to
+ * sensor noise and small shifts, while same-layout document swaps
+ * still move it: measured 0.05-0.07 for re-noised captures, 0.51 for
+ * a 3px shift, 0.58 for a same-type doc swap, 2.5+ across doc types.
+ */
+export function inkSignature(image: DecodedGray, grid = 16): number[] {
+  if (!Number.isInteger(grid) || grid < 1 || grid > 64) {
+    throw new Error(`frames: ink grid must be 1 to 64, got ${grid}`);
+  }
+  const sums = new Array<number>(grid * grid).fill(0);
+  const counts = new Array<number>(grid * grid).fill(0);
+  for (let y = 0; y < image.height; y++) {
+    const gy = Math.min(grid - 1, Math.floor((y * grid) / image.height));
+    for (let x = 0; x < image.width; x++) {
+      const cell = gy * grid + Math.min(grid - 1, Math.floor((x * grid) / image.width));
+      sums[cell]! += 255 - image.gray[y * image.width + x]!;
+      counts[cell]!++;
+    }
+  }
+  return sums.map((sum, i) => sum / counts[i]!);
+}
+
+/**
+ * Mean absolute cell difference between two ink signatures. Mismatched
+ * sizes compare as infinitely far (never a duplicate): the safe side.
+ */
+export function inkDistance(a: number[], b: number[]): number {
+  if (a.length !== b.length) return Number.POSITIVE_INFINITY;
+  let sum = 0;
+  for (let i = 0; i < a.length; i++) sum += Math.abs(a[i]! - b[i]!);
+  return sum / a.length;
+}
+
+/**
+ * Box-average downscale so the long side is at most `maxLongSide`.
+ * Returns the input unchanged when it already fits. Used before model
+ * calls: fewer image tokens, lower latency, same verdicts.
+ */
+export function downscaleGray(image: DecodedGray, maxLongSide: number): DecodedGray {
+  if (!Number.isInteger(maxLongSide) || maxLongSide < 8) {
+    throw new Error(`frames: maxLongSide must be >= 8, got ${maxLongSide}`);
+  }
+  const longSide = Math.max(image.width, image.height);
+  if (longSide <= maxLongSide) return image;
+  const scale = maxLongSide / longSide;
+  const width = Math.max(1, Math.round(image.width * scale));
+  const height = Math.max(1, Math.round(image.height * scale));
+  const gray = new Uint8Array(width * height);
+  for (let y = 0; y < height; y++) {
+    const y0 = Math.floor((y * image.height) / height);
+    const y1 = Math.max(y0 + 1, Math.floor(((y + 1) * image.height) / height));
+    for (let x = 0; x < width; x++) {
+      const x0 = Math.floor((x * image.width) / width);
+      const x1 = Math.max(x0 + 1, Math.floor(((x + 1) * image.width) / width));
+      let sum = 0;
+      for (let sy = y0; sy < y1; sy++) {
+        for (let sx = x0; sx < x1; sx++) sum += image.gray[sy * image.width + sx]!;
+      }
+      gray[y * width + x] = Math.round(sum / ((y1 - y0) * (x1 - x0)));
+    }
+  }
+  return { width, height, gray };
+}
+
 /** Stable sha256 over a 32x32 downscale: the extraction-cache key. */
 export function frameHash(image: DecodedGray): string {
   const down = new Uint8Array(32 * 32);

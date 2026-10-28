@@ -232,6 +232,44 @@ describe("RealSparkAdapter verified shapes", () => {
     assert.equal(bare.paperReadings, undefined);
   });
 
+  it("appends responseKeys inside the reply contract", async () => {
+    let body = "";
+    const fetchImpl = (async (_url: string, init: { body?: string }) => {
+      body = String(init.body ?? "");
+      return responsesMessage('{"explanation": "ok", "flagged": false}');
+    }) as unknown as typeof fetch;
+    await new RealSparkAdapter({ fetchImpl }).escalate({
+      readings: [],
+      crops: [],
+      question: "q",
+      responseKeys: ', "document": "bol"',
+    });
+    const sent = JSON.parse(body) as {
+      input: Array<{ content: Array<{ text?: string }> }>;
+    };
+    const prompt = sent.input[0]?.content[0]?.text ?? "";
+    assert.ok(
+      prompt.includes('"fixes": [{"fieldId": "...", "correctedValue": "..."}], "document": "bol"}'),
+    );
+
+    let plainBody = "";
+    const plainFetch = (async (_url: string, init: { body?: string }) => {
+      plainBody = String(init.body ?? "");
+      return responsesMessage('{"explanation": "ok", "flagged": false}');
+    }) as unknown as typeof fetch;
+    await new RealSparkAdapter({ fetchImpl: plainFetch }).escalate({
+      readings: [],
+      crops: [],
+      question: "q",
+    });
+    const plainSent = JSON.parse(plainBody) as {
+      input: Array<{ content: Array<{ text?: string }> }>;
+    };
+    const plainPrompt = plainSent.input[0]?.content[0]?.text ?? "";
+    assert.ok(plainPrompt.includes('"correctedValue": "..."}]}.'));
+    assert.ok(!plainPrompt.includes('"document"'));
+  });
+
   it("retries a 429 through the shared transport", async () => {
     let calls = 0;
     const fetchImpl = (async () => {
