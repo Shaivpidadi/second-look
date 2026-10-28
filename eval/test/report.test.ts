@@ -77,4 +77,14 @@ describe("report", () => {
     assert.match(text, /\| tiered \(stubbed\) \|/);
     assert.match(text, /\| offline \| unavailable \|/);
   });
+
+  it("tells the reader why arms are unavailable", () => {
+    const withOffline = formatReport([
+      summarize(result()),
+      summarize(result({ arm: "offline", available: false, forms: [] })),
+    ]);
+    assert.match(withOffline, /Unavailable arms need MODEL_API_KEY/);
+    const allAvailable = formatReport([summarize(result())]);
+    assert.ok(!allAvailable.includes("Unavailable arms"));
+  });
 });

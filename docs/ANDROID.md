@@ -37,7 +37,7 @@ cd apps/android
 ANDROID_HOME=~/Library/Android/sdk ./gradlew :core:test :app:assembleDebug
 ```
 
-Verified Oct 28, 2026: `:core:test` 29/29 pass, `:app:assembleDebug` and
+Verified Oct 28, 2026: `:core:test` 52/52 pass, `:app:assembleDebug` and
 `:app:assembleRelease` both build.
 
 ## Frame protocol
@@ -91,7 +91,8 @@ pairs virtual Ray-Ban Meta glasses, so the flow can be exercised without hardwar
 
 ## Phone fallback and LAN dev
 
-- The camera screen has a source toggle (glasses/phone, switchable while idle),
+- The camera screen has a source toggle (glasses/phone, switchable even
+  mid-stream: a live stream restarts on the new source),
   an fps stepper (2 to 7, live), and the chroma-swap toggle. The phone path
   requests the Android CAMERA permission at Start and streams CameraX
   YUV_420_888 frames with real stride metadata through the same uploader.

@@ -79,5 +79,12 @@ export function formatReport(summaries: ArmSummary[]): string {
     const name = s.stubbed ? `${s.arm} (stubbed)` : s.arm;
     return `| ${name} | ${s.forms} | ${s.flagged} | ${pct(s.precision)} | ${pct(s.recall)} | ${latency(s.avgLatencyMs)} | $${s.totalCostUsd.toFixed(4)} |`;
   });
-  return ["# Second Look eval report", "", ...[header, ...rows]].join("\n") + "\n";
+  const lines = ["# Second Look eval report", "", header, ...rows];
+  if (summaries.some((s) => !s.available)) {
+    lines.push(
+      "",
+      "Unavailable arms need MODEL_API_KEY (or META_API_KEY) in .env; see README: Run the eval.",
+    );
+  }
+  return lines.join("\n") + "\n";
 }
