@@ -157,3 +157,10 @@ Top 5 risks, each with a ≤30-min spike:
   docs/SHOTLIST.md with dry-run numbers, a11y pass (contrast,
   drawer Escape/labels). 0 calls. Screens changed:
   reshoot needed.
+- [x] Batch 16 (Oct 28): reshoot committed, 16-shot critique in
+  docs/critique-batch16.md with the one finding fixed (mock
+  3.1s), number guard extended to UI values + SHOTLIST (caught
+  a real gap), drawer focus trap with tests, `pnpm
+  check:submit` gate (clean), README quickstart. Step 7
+  skipped with measured reasoning. 0 calls. Screens changed:
+  reshoot needed.

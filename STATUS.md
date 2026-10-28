@@ -1,4 +1,34 @@
-# Status — Batch 15 done: number guard, shotlist, a11y (Oct 28)
+# Status — Batch 16 done: submit gate, focus trap, README (Oct 28)
+
+## Batch 16 done
+
+Reshoot committed, all 16 shots critiqued
+(docs/critique-batch16.md): one finding (landing mock 3.2s vs
+demo 3.1s), fixed. Screens changed, so another reshoot is needed.
+
+- Number guard extended to UI-rendered values (dashboard test
+  assertions, all five eval rows, fixture card latencies/costs)
+  and SHOTLIST.md from the same headlines table. It caught one
+  real gap (moment 4 missing from SHOTLIST), now fixed.
+- Drawer focus trap: focus moves to the close button on open,
+  Tab cycles inside, Escape closes, focus returns to the
+  opening row. Cycle logic in lib/focus-trap.ts with 5 tests.
+- `pnpm check:submit`: fails on tracked .env or secret shapes,
+  em dashes in user-facing copy, real company names in
+  fixtures (hook line allowlisted), test/typecheck failures.
+  Currently clean. Documented in SUBMIT.md.
+- README judge pass: 2-minute no-key quickstart up top,
+  corrected the `.env` loading claim (Next auto-loads; eval
+  CLIs need it exported).
+- Step 7 skipped deliberately: clip Spark output already
+  averages near 230 tokens/call, so decode length is a small
+  slice of the near ±2s arrival variance, and 2 runs per arm
+  inside the 20-call cap cannot resolve a p50/max drop. No
+  unmeasured change made.
+
+Batch spend: 0 model API calls (fixtures and offline checks only).
+`pnpm -r test`: 335 pass, 0 fail. `pnpm -r typecheck`: pass
+(5 projects). `next build`: pass. `pnpm check:submit`: clean.
 
 ## Batch 15 done
 
