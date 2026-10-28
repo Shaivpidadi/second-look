@@ -33,6 +33,7 @@ import {
   TableRow,
 } from "../../components/ui/table";
 import { formatCost, formatCount, formatLatency, formatTime } from "../../lib/format";
+import { actionLabel, fieldLabel } from "../../lib/fields";
 import { buildDemoDataset } from "../../lib/demo-data";
 import { cn } from "../../lib/cn";
 
@@ -148,6 +149,15 @@ function groupRuns(entries: AuditEntry[]): CheckRun[] {
       };
     })
     .sort((a, b) => (a.ts < b.ts ? 1 : -1));
+}
+
+/** Reference values with units so bare counts read as quantities. */
+function referenceLabel(fieldId: string | undefined, value: string | null | undefined): string {
+  if (value === null || value === undefined) return fieldId ? fieldLabel(fieldId) : "n/a";
+  if (fieldId === "bol.cartons" || fieldId === "pod.receivedCartons") return `${value} ctn`;
+  if (fieldId === "invoice.totalQty" || fieldId === "packing.totalQty") return `${value} pcs`;
+  if (fieldId === "bol.weightKg" || fieldId === "awb.weightKg") return `${value} kg`;
+  return value;
 }
 
 function modelLabel(run: CheckRun): string {
@@ -291,8 +301,8 @@ export default function Dashboard() {
       )
     : entries;
 
-  const blocked = entries.filter((entry) => entry.verdict === "blocked").length;
-  const warned = entries.filter((entry) => entry.verdict === "mismatch").length;
+  const blocked = runs.filter((run) => run.verdict === "blocked").length;
+  const warned = runs.filter((run) => run.verdict === "mismatch").length;
   const medianLatency = median(runs.map((run) => run.latencyMs));
   const totalCost = runs.reduce((sum, run) => sum + run.costUsd, 0);
   const openRun = openCheck ? runs.find((run) => run.ts === openCheck) ?? null : null;
@@ -591,8 +601,12 @@ export default function Dashboard() {
                                 <TableCell className="font-mono text-[13px] whitespace-nowrap tabular">
                                   {formatTime(entry.ts)}
                                 </TableCell>
-                                <TableCell className="font-mono text-[13px]">
-                                  {entry.fieldId}
+                                <TableCell
+                                  className="text-[13px] text-ink-dim"
+                                  title={entry.fieldId}
+                                  data-field-id={entry.fieldId}
+                                >
+                                  {fieldLabel(entry.fieldId)}
                                 </TableCell>
                                 <TableCell className="max-w-48 truncate font-mono text-[13px] tabular">
                                   {entry.typedValue ?? "n/a"}
@@ -602,8 +616,12 @@ export default function Dashboard() {
                                     {entry.verdict}
                                   </Badge>
                                 </TableCell>
-                                <TableCell className="font-mono text-[13px]">
-                                  {entry.action}
+                                <TableCell
+                                  className="font-mono text-[13px]"
+                                  title={entry.action}
+                                  data-action={entry.action}
+                                >
+                                  {actionLabel(entry.action)}
                                 </TableCell>
                               </TableRow>
                             ))}
@@ -721,7 +739,7 @@ function ChecksTable({
                 {first ? docType(first.fieldId) : "n/a"}
               </TableCell>
               <TableCell className="max-w-44 truncate font-mono text-[13px] tabular">
-                {first?.typedValue ?? first?.fieldId ?? "n/a"}
+                {referenceLabel(first?.fieldId, first?.typedValue)}
               </TableCell>
               <TableCell className="text-[13px] text-ink-dim">{modelLabel(run)}</TableCell>
               <TableCell className="font-mono text-[13px] tabular">
@@ -803,7 +821,13 @@ function CheckDrawer({ run, onClose }: { run: CheckRun; onClose: () => void }) {
                       entry.paperValue !== entry.typedValue;
                     return (
                       <TableRow key={`${entry.fieldId}-${i}`}>
-                        <TableCell className="font-mono text-xs">{entry.fieldId}</TableCell>
+                        <TableCell
+                          className="text-xs text-ink-dim"
+                          title={entry.fieldId}
+                          data-field-id={entry.fieldId}
+                        >
+                          {fieldLabel(entry.fieldId)}
+                        </TableCell>
                         <TableCell className="font-mono text-xs tabular">
                           {entry.paperValue ?? "n/a"}
                         </TableCell>
@@ -852,8 +876,13 @@ function CheckDrawer({ run, onClose }: { run: CheckRun; onClose: () => void }) {
                     }
                   />
                   <span className="text-ink-faint">{formatTime(entry.ts)}</span>
-                  <span className="truncate text-ink-dim">
-                    {entry.fieldId} → {entry.action}
+                  <span
+                    className="truncate text-ink-dim"
+                    title={`${entry.fieldId} → ${entry.action}`}
+                    data-field-id={entry.fieldId}
+                    data-action={entry.action}
+                  >
+                    {fieldLabel(entry.fieldId)} → {actionLabel(entry.action)}
                   </span>
                 </li>
               ))}

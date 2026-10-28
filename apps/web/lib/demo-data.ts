@@ -183,11 +183,19 @@ export function buildDemoDataset(baseTs: number): { entries: DemoAuditEntry[]; c
     });
   }
 
-  // Spread runs over the last 8 hours, newest first.
+  // Shuffle so verdicts interleave over time instead of banding.
+  for (let i = specs.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    const a = specs[i] as RunSpec;
+    specs[i] = specs[j] as RunSpec;
+    specs[j] = a;
+  }
+  // Spread runs over the last 8 hours, newest first, with seconds
+  // randomized so timestamps do not share one clock reading.
   const entries: DemoAuditEntry[] = [];
   specs.forEach((spec, i) => {
-    const offsetMin = 3 + i * 12 + Math.floor(rand() * 8);
-    const ts = new Date(baseTs - offsetMin * 60_000).toISOString();
+    const offsetSec = 180 + i * 720 + Math.floor(rand() * 600);
+    const ts = new Date(baseTs - offsetSec * 1000).toISOString();
     const calls = spec.calls.length > 0 ? spec.calls : undefined;
     entries.push({
       ts,
