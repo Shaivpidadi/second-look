@@ -107,8 +107,8 @@ async function main(): Promise<void> {
     await firstRow.click();
     await dash.waitForTimeout(500);
     await shot(dash, "dashboard-drawer-1440.png");
-    await dash.keyboard.press("Escape").catch(() => {});
-    await dash.getByRole("button", { name: "Close check detail" }).click().catch(() => {});
+    await dash.keyboard.press("Escape");
+    await dash.waitForTimeout(300);
     await dash.goto(`${BASE}/dashboard?session=demo`, { waitUntil: "networkidle" });
     await dash.waitForTimeout(2500);
     await dash.getByRole("button", { name: "Claims" }).click();

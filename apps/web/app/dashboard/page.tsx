@@ -778,6 +778,13 @@ function ChecksTable({
 }
 
 function CheckDrawer({ run, onClose }: { run: CheckRun; onClose: () => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
   return (
     <div className="fixed inset-0 z-50" role="dialog" aria-modal="true" aria-label="Check detail">
       <button
@@ -790,7 +797,13 @@ function CheckDrawer({ run, onClose }: { run: CheckRun; onClose: () => void }) {
         <div className="flex items-center gap-3 border-b border-line px-5 py-4">
           <Badge tone={verdictTone(run.verdict)}>{verdictLabel(run.verdict)}</Badge>
           <span className="font-mono text-xs text-ink-faint tabular">{formatTime(run.ts)}</span>
-          <Button size="sm" variant="ghost" className="ml-auto !px-2" onClick={onClose}>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="ml-auto !px-2"
+            onClick={onClose}
+            aria-label="Close check detail"
+          >
             <X className="h-4 w-4" aria-hidden />
           </Button>
         </div>
