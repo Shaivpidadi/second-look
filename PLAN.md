@@ -172,6 +172,10 @@ Top 5 risks, each with a ≤30-min spike:
   `:core:test` green, debug + release APKs assemble,
   docs/ANDROID.md written. 0 calls. Screens unchanged: no
   new reshoot.
+- [x] Batch 21 (Oct 28): judge output tightened (p90 3.2s
+  to 2.8s, P/R 1.0/1.0, 36 calls), one-tap phone fallback,
+  docs/video/ package under the number guard, SUBMIT
+  judge-read fixes. 36 calls. Screens unchanged: no reshoot.
 - [x] Batch 20 (Oct 28): deadline Nov 4 9pm ET + guard, POST
   verdicts + client memory, Android failure states, Check setup
   + demo:preflight/demo:lan, two-instance proof 4 calls, docs.

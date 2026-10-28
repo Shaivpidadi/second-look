@@ -1,6 +1,6 @@
-# Status: Batch 21 in progress - latency margin, fallback, video (Oct 28)
+# Status: Batch 21 done - latency margin, fallback, video (Oct 28)
 
-## Batch 21 (in progress)
+## Batch 21 done
 
 Frame judge A/B on a fixed 8-frame set (forms 0005/0006
 bol/awb/invoice/packing x clean/corrupted, fresh session per
@@ -12,11 +12,30 @@ at 120 chars; the 768-token cap stays because a truncated reply
 parses as no-judgment (silent clean). Kept: p90 down 426ms, P/R
 unchanged. 36 calls (pilot 4, before 16, after 16).
 
+- Phone fallback is one tap: the Source toggle now restarts a
+  live stream on the new source, and glasses-link/permission
+  failures offer "Use phone camera", which resumes on the same
+  session (verdicts, memory, speech kept). Switch planner is
+  pure :core and unit-tested; plan B documented in DEMO.md.
+- docs/video/ holds the 3-minute SCRIPT.md (matches DEMO.md),
+  OVERLAYS.txt (one line per on-screen number with STATUS
+  source), and a 26-cue captions.srt. The headline number
+  guard now pins all three files, so check:submit covers them.
+- Judge-read SUBMIT.md/README against BRIEF.md
+  (docs/critique-batch21.md): fixed the SAM overclaim (parked,
+  Spark-box fallback covers) and added the video package to
+  the checklist. All other claims backed by measured numbers.
+
 Video numbers for docs/video/OVERLAYS.txt, restated from the
 README eval table and prior batches: validators 60.0%/39.4%,
 tiered 98.8% std100, single-model and vision 100% hard40, clip
 E2E 3.4s/4.9s, fixes 11/13, $0.003 text, $0.015 vision, ~$0.46
 combined upper bound, frame p50 2.3s p90 2.8s.
+
+Batch spend: 36 model API calls (judge A/B only).
+`pnpm test`: 418 pass, 0 fail. `pnpm -r typecheck`: pass.
+`next build`: pass. `pnpm check:submit`: clean. Android:
+`:core:test` 52 pass, debug + release APKs assemble.
 
 ## Batch 20 done
 
@@ -620,11 +639,11 @@ Needs Shaishav (human, finish by Nov 3, 9pm ET):
 
 Needs no human:
 
-- Optional margin work: shorter Spark explanations (per-call
-  variance near ±2s is the whole sub-5s budget); Glimmer weights
-  runner only if chasing the open-weight bonus past the stub.
+- Optional margin work: Glimmer weights runner only if chasing
+  the open-weight bonus past the stub.
 
 Done and out of this list: request timeouts + retry (batch 13),
 vision abstention gate measured (batch 14, judge-always
 documented), sub-5s totals (batches 11/14), demo dry-run (batch 14),
-screenshot reshoot (batch 16 screens, one reshoot covered 17).
+screenshot reshoot (batch 16 screens, one reshoot covered 17),
+shorter judge output (batch 21, p90 3.2s to 2.8s).
