@@ -33,6 +33,15 @@ class SseFrameEventTest {
         assertTrue(value.startsWith("data:image/jpeg;base64,"))
         val roundTrip = Base64.getDecoder().decode(value.substringAfter(","))
         assertTrue(roundTrip.contentEquals(jpeg))
+        @Suppress("UNCHECKED_CAST")
+        assertEquals(emptyMap<String, Any?>(), decoded["memory"] as Map<String, Any?>)
+        val withMemory = FrameEvent("s1", "t", jpeg, mapOf("bol" to mapOf("bol.weightKg" to "1")))
+        @Suppress("UNCHECKED_CAST")
+        val memDecoded = parseJson(withMemory.toJson()) as Map<String, Any?>
+        @Suppress("UNCHECKED_CAST")
+        val mem = memDecoded["memory"] as Map<String, Any?>
+        @Suppress("UNCHECKED_CAST")
+        assertEquals(mapOf("bol.weightKg" to "1"), mem["bol"] as Map<String, Any?>)
     }
 
     @Test

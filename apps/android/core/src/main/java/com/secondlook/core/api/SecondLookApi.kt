@@ -26,8 +26,11 @@ class SecondLookApi(
 
     fun verdictsUrl(sessionId: String): String = "$baseUrl/api/verdicts?sessionId=$sessionId"
 
-    /** POST one frame event; throws on transport or non-2xx status. */
-    suspend fun postFrame(event: FrameEvent): Unit = withContext(Dispatchers.IO) {
+    /**
+     * POST one frame event and parse its verdicts. Throws [ApiException]
+     * on transport, non-2xx status, or an unparsable response body.
+     */
+    suspend fun postFrame(event: FrameEvent): FramePostResult = withContext(Dispatchers.IO) {
         val connection = URL(eventsUrl()).openConnection() as HttpURLConnection
         try {
             val body = event.toJson().toByteArray(StandardCharsets.UTF_8)
@@ -41,11 +44,18 @@ class SecondLookApi(
             if (status !in 200..299) {
                 throw ApiException("POST /api/events failed with status $status")
             }
-            try {
-                connection.inputStream.use { it.readBytes() }
-            } catch (_: Exception) {
-                // Drain best-effort; the status already told us it worked.
+            val text = try {
+                connection.inputStream.use { String(it.readBytes(), StandardCharsets.UTF_8) }
+            } catch (e: Exception) {
+                throw ApiException("frame response unreadable: ${e.message}")
             }
+            val payload = try {
+                parseJson(text) as? Map<String, Any?>
+            } catch (_: Exception) {
+                null
+            }
+            payload?.let { parseFramePostResponse(it) }
+                ?: throw ApiException("bad frame response from ${eventsUrl()}")
         } finally {
             connection.disconnect()
         }

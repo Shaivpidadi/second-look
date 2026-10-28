@@ -11,8 +11,10 @@ data class VerdictFailure(
 /**
  * A live verdict published by the server over SSE
  * (see apps/web/lib/verdict-bus.ts PublishedVerdict).
+ * POST responses carry the same objects; clients dedupe on [id].
  */
 data class LiveVerdict(
+    val id: String,
     val seq: Int,
     val sessionId: String,
     val fieldId: String,
@@ -55,9 +57,13 @@ fun parseVerdict(payload: Map<String, Any?>): LiveVerdict? {
             fix = map["fix"] as? String,
         )
     }
+    val sessionId = string("sessionId")
+    // Older servers omit the id; fall back to a per-session key.
+    val id = (payload["id"] as? String) ?: "$sessionId:$seq"
     return LiveVerdict(
+        id = id,
         seq = seq,
-        sessionId = string("sessionId"),
+        sessionId = sessionId,
         fieldId = string("fieldId"),
         decision = string("decision"),
         state = string("state"),

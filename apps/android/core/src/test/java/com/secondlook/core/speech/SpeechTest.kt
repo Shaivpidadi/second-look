@@ -13,6 +13,7 @@ class SpeechTest {
         failures: List<Pair<String, String>> = emptyList(),
     ): LiveVerdict {
         return LiveVerdict(
+            id = "v-$state-${failures.hashCode()}",
             seq = 1,
             sessionId = "s",
             fieldId = "frame.pov",

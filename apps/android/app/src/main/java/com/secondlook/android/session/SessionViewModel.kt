@@ -26,6 +26,8 @@ import com.secondlook.android.frames.YuvJpeg
 import com.secondlook.core.api.FrameEvent
 import com.secondlook.core.api.LiveVerdict
 import com.secondlook.core.api.SecondLookApi
+import com.secondlook.core.session.SeenIds
+import com.secondlook.core.session.SessionMemory
 import com.secondlook.core.speech.SpeakDebounce
 import com.secondlook.core.speech.phraseFor
 import java.time.Instant
@@ -122,6 +124,8 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
 
     private val speaker by lazy { VerdictSpeaker(getApplication()) }
     private val speakDebounce = SpeakDebounce()
+    private val sessionMemory = SessionMemory()
+    private val seenVerdictIds = SeenIds()
 
     private var session: DeviceSession? = null
     private var camera: Camera? = null
@@ -191,9 +195,10 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
             jobs = listOf(
                 launch {
                     try {
+                        // SSE is the backup channel: POST responses carry the
+                        // same verdicts, and ingest dedupes by verdict id.
                         api.verdicts(sessionId).collect { verdict ->
-                            _verdicts.update { (listOf(verdict) + it).take(MAX_VERDICTS) }
-                            maybeSpeak(verdict)
+                            ingestVerdict(verdict)
                         }
                     } catch (e: Exception) {
                         setError("verdicts: ${e.message}")
@@ -402,11 +407,25 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
             YuvJpeg.decode(jpeg)
         }?.let { _preview.value = it }
         try {
-            api.postFrame(FrameEvent(sessionId, Instant.now().toString(), jpeg))
+            val posted = api.postFrame(
+                FrameEvent(sessionId, Instant.now().toString(), jpeg, sessionMemory.snapshot()),
+            )
+            sessionMemory.learn(posted.document, posted.readings)
+            posted.verdicts.forEach { ingestVerdict(it) }
             _framesPosted.update { it + 1 }
         } catch (e: Exception) {
             setError("upload: ${e.message}")
         }
+    }
+
+    /**
+     * Render and speak one verdict from either channel, skipping ids
+     * already seen on the other channel.
+     */
+    private fun ingestVerdict(verdict: LiveVerdict) {
+        if (!seenVerdictIds.add(verdict.id)) return
+        _verdicts.update { (listOf(verdict) + it).take(MAX_VERDICTS) }
+        maybeSpeak(verdict)
     }
 
     private fun setError(message: String) {

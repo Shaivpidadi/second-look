@@ -44,6 +44,17 @@ class VerdictTest {
     }
 
     @Test
+    fun `verdict id parses, with a session fallback`() {
+        @Suppress("UNCHECKED_CAST")
+        val withId = parseJson(
+            """{"id":"abc123","seq":1,"sessionId":"s","fieldId":"f","decision":"ALLOW","state":"clean",
+               |"failures":[],"ts":"t"}""".trimMargin(),
+        ) as Map<String, Any?>
+        assertEquals("abc123", parseVerdict(withId)!!.id)
+        assertEquals("s1:3", parseVerdict(payload())!!.id)
+    }
+
+    @Test
     fun `labels match the web vocabulary`() {
         assertEquals("Pass", verdictLabel("clean"))
         assertEquals("Warn", verdictLabel("mismatch"))
