@@ -63,6 +63,10 @@ function pct(value: number | null): string {
   return value === null ? "n/a" : `${(value * 100).toFixed(1)}%`;
 }
 
+function latency(avgMs: number): string {
+  return avgMs < 1 ? "<1ms" : `${avgMs.toFixed(1)}ms`;
+}
+
 /** One Markdown table comparing arms; stubbed arms say so in the name. */
 export function formatReport(summaries: ArmSummary[]): string {
   const header =
@@ -73,7 +77,7 @@ export function formatReport(summaries: ArmSummary[]): string {
       return `| ${s.arm} | unavailable | — | — | — | — | — |`;
     }
     const name = s.stubbed ? `${s.arm} (stubbed)` : s.arm;
-    return `| ${name} | ${s.forms} | ${s.flagged} | ${pct(s.precision)} | ${pct(s.recall)} | ${s.avgLatencyMs.toFixed(1)}ms | $${s.totalCostUsd.toFixed(4)} |`;
+    return `| ${name} | ${s.forms} | ${s.flagged} | ${pct(s.precision)} | ${pct(s.recall)} | ${latency(s.avgLatencyMs)} | $${s.totalCostUsd.toFixed(4)} |`;
   });
   return ["# Second Look eval report", "", ...[header, ...rows]].join("\n") + "\n";
 }
