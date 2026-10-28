@@ -1,0 +1,110 @@
+1
+00:00:02,000 --> 00:00:07,500
+In 2020 Citibank wired $900M
+to Revlon's lenders by mistake.
+
+2
+00:00:08,000 --> 00:00:14,000
+The screen looked right.
+Nobody read it twice.
+
+3
+00:00:19,000 --> 00:00:26,000
+Every air waybill gets typed
+by hand at least once.
+
+4
+00:00:26,500 --> 00:00:33,000
+The glasses watch the paper while
+a screen reader watches the typing.
+
+5
+00:00:34,000 --> 00:00:39,000
+Validators alone miss most real errors.
+
+6
+00:00:43,000 --> 00:00:49,000
+A local verdict streams in about
+two hundred milliseconds.
+
+7
+00:00:49,500 --> 00:00:55,000
+One image-grounded Spark call refines it.
+Verdict: blocked, AWB check digit invalid,
+
+8
+00:00:55,500 --> 00:01:00,000
+fix proposes the paper value.
+
+9
+00:01:02,000 --> 00:01:09,000
+Validators block instantly and for free.
+The model gets one call to explain
+
+10
+00:01:09,500 --> 00:01:11,500
+and propose the fix.
+
+11
+00:01:13,000 --> 00:01:18,000
+Paper matches typed, but the documents
+disagree with each other.
+
+12
+00:01:18,500 --> 00:01:23,000
+Warn on the cross-doc gap,
+escalated to Spark.
+
+13
+00:01:39,000 --> 00:01:47,000
+Every decision lands here with its reasoning,
+its latency and cost, and an append-only audit trail.
+
+14
+00:02:01,000 --> 00:02:06,000
+The POD note reads 2 cartons damaged.
+A claim draft follows:
+
+15
+00:02:06,500 --> 00:02:12,000
+carrier plus BOL reference, 2 damaged,
+amount left for the adjuster.
+
+16
+00:02:15,000 --> 00:02:20,000
+Check digits alone collapse on the hard split.
+The tiered pipeline holds 98.8 to 100% recall
+
+17
+00:02:20,500 --> 00:02:27,000
+at about a third of a cent per form for text,
+a cent and a half with full vision.
+
+18
+00:02:27,500 --> 00:02:31,500
+The vision arm reads paper straight
+from degraded pixels, including five
+
+19
+00:02:32,000 --> 00:02:35,500
+validator-blind near-miss forms,
+
+20
+00:02:36,000 --> 00:02:43,000
+and abstains to needs-human
+when it cannot read a field.
+
+21
+00:02:47,000 --> 00:02:51,000
+Validators first, always free.
+A local pass over crops.
+
+22
+00:02:51,500 --> 00:02:55,500
+Cloud only on disagreement,
+one Spark call per verdict.
+
+23
+00:02:56,000 --> 00:02:59,500
+What ships next: on-glasses recording
+and local Glimmer weights.

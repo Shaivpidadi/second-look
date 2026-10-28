@@ -1,9 +1,11 @@
 /**
  * Single source of truth for the headline numbers quoted across
- * README.md, docs/DEMO.md, docs/SUBMIT.md, and STATUS.md. Each entry
- * lists the exact rendering every doc must contain (rounding variants
- * allowed where noted). When a measurement changes, update the docs
- * and this table together; eval/test/numbers.test.ts fails on drift.
+ * README.md, docs/DEMO.md, docs/SUBMIT.md, STATUS.md, and the
+ * docs/video/ package (SCRIPT.md, OVERLAYS.txt, captions.srt). Each
+ * entry lists the exact rendering every doc must contain (rounding
+ * variants allowed where noted). When a measurement changes, update
+ * the docs and this table together; eval/test/numbers.test.ts fails
+ * on drift.
  */
 
 export interface HeadlineQuote {
@@ -21,6 +23,8 @@ export const HEADLINES: HeadlineQuote[] = [
       { file: "docs/DEMO.md", text: "100-form standard corpus, 40-form hard corpus" },
       { file: "docs/SUBMIT.md", text: "100-form standard split" },
       { file: "docs/SUBMIT.md", text: "40-form hard split" },
+      { file: "docs/video/SCRIPT.md", text: "100-form standard corpus, 40-form hard corpus" },
+      { file: "docs/video/OVERLAYS.txt", text: "100-form standard corpus, 40-form hard corpus" },
     ],
   },
   {
@@ -35,6 +39,16 @@ export const HEADLINES: HeadlineQuote[] = [
         text: "| tiered-real | std 100 | 100.0% | 98.8% | 3118ms | † |",
       },
       { file: "docs/SUBMIT.md", text: "98.8% recall on the 100-form standard split" },
+      {
+        file: "docs/video/SCRIPT.md",
+        text: "| tiered-real | std 100 | 100.0% | 98.8% | 3118ms | † |",
+      },
+      {
+        file: "docs/video/OVERLAYS.txt",
+        text: "| tiered-real | std 100 | 100.0% | 98.8% | 3118ms | † |",
+      },
+      { file: "docs/video/SCRIPT.md", text: "holds 98.8 to 100% recall" },
+      { file: "docs/video/captions.srt", text: "holds 98.8 to 100% recall" },
     ],
   },
   {
@@ -46,6 +60,14 @@ export const HEADLINES: HeadlineQuote[] = [
       },
       { file: "docs/DEMO.md", text: "check-digit-only recall: 60.0% standard, 39.4% hard" },
       { file: "docs/SUBMIT.md", text: "validators alone fall to 39.4%" },
+      {
+        file: "docs/video/SCRIPT.md",
+        text: "check-digit-only recall: 60.0% standard, 39.4% hard",
+      },
+      {
+        file: "docs/video/OVERLAYS.txt",
+        text: "check-digit-only recall: 60.0% standard, 39.4% hard",
+      },
     ],
   },
   {
@@ -60,6 +82,14 @@ export const HEADLINES: HeadlineQuote[] = [
         text: "| single-model-real | hard 40 | 100.0% | 100.0% | 1849ms | $0.086 |",
       },
       { file: "docs/SUBMIT.md", text: "100% recall on the 40-form hard split" },
+      {
+        file: "docs/video/SCRIPT.md",
+        text: "| single-model-real | hard 40 | 100.0% | 100.0% | 1849ms | $0.086 |",
+      },
+      {
+        file: "docs/video/OVERLAYS.txt",
+        text: "| single-model-real | hard 40 | 100.0% | 100.0% | 1849ms | $0.086 |",
+      },
     ],
   },
   {
@@ -74,6 +104,14 @@ export const HEADLINES: HeadlineQuote[] = [
         text: "| vision-real | hard 40 | 100.0% | 100.0% | 3086ms | $0.62 |",
       },
       { file: "STATUS.md", text: "full hard 40 at 100.0%/100.0% (3085.7ms, $0.6169)" },
+      {
+        file: "docs/video/SCRIPT.md",
+        text: "| vision-real | hard 40 | 100.0% | 100.0% | 3086ms | $0.62 |",
+      },
+      {
+        file: "docs/video/OVERLAYS.txt",
+        text: "| vision-real | hard 40 | 100.0% | 100.0% | 3086ms | $0.62 |",
+      },
     ],
   },
   {
@@ -85,6 +123,10 @@ export const HEADLINES: HeadlineQuote[] = [
       { file: "docs/SUBMIT.md", text: "(3.4s block with fix, 4.9s warn with escalation)" },
       { file: "STATUS.md", text: "total 4892ms (fast 245ms)" },
       { file: "STATUS.md", text: "total 3401ms" },
+      { file: "docs/video/SCRIPT.md", text: "blocked in 3.4s end to end (measured live)" },
+      { file: "docs/video/OVERLAYS.txt", text: "blocked in 3.4s end to end (measured live)" },
+      { file: "docs/video/SCRIPT.md", text: "warned in 4.9s end to end (measured live)" },
+      { file: "docs/video/OVERLAYS.txt", text: "warned in 4.9s end to end (measured live)" },
     ],
   },
   {
@@ -92,6 +134,8 @@ export const HEADLINES: HeadlineQuote[] = [
     quotes: [
       { file: "docs/DEMO.md", text: "fix correct in 11 of 13 live runs" },
       { file: "STATUS.md", text: "now 11 of 13 live runs" },
+      { file: "docs/video/SCRIPT.md", text: "fix correct in 11 of 13 live runs" },
+      { file: "docs/video/OVERLAYS.txt", text: "fix correct in 11 of 13 live runs" },
     ],
   },
   {
@@ -104,6 +148,17 @@ export const HEADLINES: HeadlineQuote[] = [
       { file: "docs/DEMO.md", text: "~$0.46 combined upper bound for both standard real arms" },
       { file: "docs/DEMO.md", text: "a cent and a half with full vision" },
       { file: "STATUS.md", text: "~$0.015/form" },
+      { file: "docs/video/SCRIPT.md", text: "a third of a cent per form for text" },
+      { file: "docs/video/SCRIPT.md", text: "a cent and a half with full vision" },
+      {
+        file: "docs/video/SCRIPT.md",
+        text: "~$0.46 combined upper bound for both standard real arms",
+      },
+      {
+        file: "docs/video/OVERLAYS.txt",
+        text: "~$0.46 combined upper bound for both standard real arms",
+      },
+      { file: "docs/video/captions.srt", text: "a third of a cent per form for text" },
     ],
   },
   {
@@ -195,6 +250,36 @@ export const HEADLINES: HeadlineQuote[] = [
     quotes: [
       { file: "STATUS.md", text: "58/150 real API calls" },
       { file: "STATUS.md", text: "81/150 real API calls" },
+    ],
+  },
+  {
+    source: "clip E2E, single keyframe scan (Batch 14)",
+    quotes: [
+      { file: "STATUS.md", text: "Single keyframe (1/15)" },
+      { file: "docs/video/SCRIPT.md", text: "1 keyframe of 15 scanned" },
+      { file: "docs/video/OVERLAYS.txt", text: "1 keyframe of 15 scanned" },
+    ],
+  },
+  {
+    source: "frame judge A/B after-run (Batch 21, fixed 8-frame set)",
+    quotes: [
+      { file: "STATUS.md", text: "after p50 2326ms p90 2808ms" },
+      {
+        file: "docs/video/SCRIPT.md",
+        text: "fresh frame verdict p50 2.3s, p90 2.8s (8-frame set, P/R 1.0/1.0, 0 abstentions)",
+      },
+      {
+        file: "docs/video/OVERLAYS.txt",
+        text: "fresh frame verdict p50 2.3s, p90 2.8s (8-frame set, P/R 1.0/1.0, 0 abstentions)",
+      },
+    ],
+  },
+  {
+    source: "/demo moment 3 claim fixture (DEMO shot list)",
+    quotes: [
+      { file: "docs/DEMO.md", text: "2 cartons damaged" },
+      { file: "docs/video/SCRIPT.md", text: "2 cartons damaged" },
+      { file: "docs/video/captions.srt", text: "2 cartons damaged" },
     ],
   },
 ];

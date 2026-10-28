@@ -1,4 +1,22 @@
-# Status: Batch 20 done - demo-day robustness for the glasses path (Oct 28)
+# Status: Batch 21 in progress - latency margin, fallback, video (Oct 28)
+
+## Batch 21 (in progress)
+
+Frame judge A/B on a fixed 8-frame set (forms 0005/0006
+bol/awb/invoice/packing x clean/corrupted, fresh session per
+case): before p50 2249ms p90 3234ms, after p50 2326ms p90 2808ms;
+P/R 1.00/1.00 both, 0 abstentions both. The change scopes
+`readings` to the 6 cross-doc keys, keeps `explanation` empty when
+clean (else one 140-char sentence), and caps each failure detail
+at 120 chars; the 768-token cap stays because a truncated reply
+parses as no-judgment (silent clean). Kept: p90 down 426ms, P/R
+unchanged. 36 calls (pilot 4, before 16, after 16).
+
+Video numbers for docs/video/OVERLAYS.txt, restated from the
+README eval table and prior batches: validators 60.0%/39.4%,
+tiered 98.8% std100, single-model and vision 100% hard40, clip
+E2E 3.4s/4.9s, fixes 11/13, $0.003 text, $0.015 vision, ~$0.46
+combined upper bound, frame p50 2.3s p90 2.8s.
 
 ## Batch 20 done
 

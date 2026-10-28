@@ -1,0 +1,16 @@
+On-screen numbers for docs/video/SCRIPT.md, one per line, each with
+its STATUS.md source section. The eval-table restatements sit in the
+Batch 21 video block; the original measurements are older batches.
+SHOT 2 | check-digit-only recall: 60.0% standard, 39.4% hard | STATUS.md "Batch 21 done" video numbers (forms eval, README table)
+SHOT 2 | fresh frame verdict p50 2.3s, p90 2.8s (8-frame set, P/R 1.0/1.0, 0 abstentions) | STATUS.md "Batch 21 done" frame A/B after-run
+SHOT 3 | blocked in 3.4s end to end (measured live) | STATUS.md "Batch 11 latency: end-to-end checks under 5s" (total 3401ms)
+SHOT 3 | fix correct in 11 of 13 live runs | STATUS.md "Batch 14 done"
+SHOT 4 | warned in 4.9s end to end (measured live) | STATUS.md "Batch 11 latency: end-to-end checks under 5s" (total 4892ms)
+SHOT 4 | 1 keyframe of 15 scanned | STATUS.md "Batch 14 done" (Single keyframe (1/15))
+SHOT 4 | one Spark escalation plus SAM boxes per check | STATUS.md "Batch 11 latency: end-to-end checks under 5s" (2 calls per check)
+SHOT 7 | | check-digit-only | hard 40 | 100.0% | 39.4% | <1ms | $0 | | STATUS.md "Batch 21 done" video numbers (forms eval, README table)
+SHOT 7 | | tiered-real | std 100 | 100.0% | 98.8% | 3118ms | † | | STATUS.md "Batch 21 done" video numbers (forms eval, README table)
+SHOT 7 | | single-model-real | hard 40 | 100.0% | 100.0% | 1849ms | $0.086 | | STATUS.md "Batch 21 done" video numbers (forms eval, README table)
+SHOT 7 | | vision-real | hard 40 | 100.0% | 100.0% | 3086ms | $0.62 | | STATUS.md "Batch 21 done" video numbers (forms eval, README table)
+SHOT 7 | 100-form standard corpus, 40-form hard corpus | STATUS.md "Batch 21 done" video numbers (forms eval, README table)
+SHOT 7 | ~$0.46 combined upper bound for both standard real arms | STATUS.md "Batch 21 done" video numbers (batch-6 token totals)
