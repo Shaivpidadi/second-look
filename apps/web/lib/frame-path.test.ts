@@ -169,6 +169,20 @@ test("frame: rejects bad mime, bad base64, and oversized frames", () => {
   assert.deepEqual(parseFrameDataUrl(huge), { error: "frame_too_large" });
 });
 
+test("frame: largest accepted frame stays under Vercel's body limit", () => {
+  const VERCEL_BODY_LIMIT = Math.floor(4.5 * 1024 * 1024);
+  const body = "A".repeat(Math.floor(2_000_000 / 3) * 4);
+  const parsed = parseFrameDataUrl(`data:image/jpeg;base64,${body}`);
+  assert.ok("frame" in parsed);
+  const post = JSON.stringify({
+    sessionId: "s",
+    fieldId: "frame.pov",
+    value: `data:image/jpeg;base64,${body}`,
+    ts: "t",
+  });
+  assert.ok(post.length < VERCEL_BODY_LIMIT, `${post.length} exceeds ${VERCEL_BODY_LIMIT}`);
+});
+
 test("frame: near-duplicate detection honors both thresholds", () => {
   assert.equal(isNearDuplicate(null, dedupeKey(0n, [0])), false);
   assert.equal(isNearDuplicate(dedupeKey(0b1010n, [0]), dedupeKey(0b1010n, [0])), true);

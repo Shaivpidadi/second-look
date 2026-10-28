@@ -3,6 +3,17 @@ import { FRAME_FIELD_ID, handleFramePost } from "../../../lib/frame-path";
 import { evaluatePartialSubmission } from "../../../lib/gate";
 import { publishLiveVerdict } from "../../../lib/verdict-bus";
 
+/**
+ * Node runtime (the frame path uses Buffer and node:crypto) with headroom
+ * for a max-size frame POST; the POST itself answers in well under a
+ * second and judging runs off-path. Note the verdict bus is in-memory,
+ * so live verdicts need a single-node server (Mac Studio LAN); on
+ * multi-instance Vercel the POST validates but verdicts would not fan
+ * out without an external bus.
+ */
+export const runtime = "nodejs";
+export const maxDuration = 60;
+
 export interface FormEvent {
   sessionId: string;
   fieldId: string;
