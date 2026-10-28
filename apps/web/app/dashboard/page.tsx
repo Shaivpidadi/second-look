@@ -38,8 +38,10 @@ import { auditToCsv, auditToJsonl } from "../../lib/audit-export";
 import {
   groupRuns,
   selectRunStats,
+  selectTierStats,
   type CheckRun as LibCheckRun,
   type RunStats,
+  type TierStats,
 } from "../../lib/dashboard-stats";
 import { buildDemoDataset } from "../../lib/demo-data";
 import { cn } from "../../lib/cn";
@@ -279,6 +281,7 @@ export default function Dashboard() {
     : entries;
 
   const stats = useMemo(() => selectRunStats(runs), [runs]);
+  const tiers = useMemo(() => selectTierStats(runs), [runs]);
   const openRun = openCheck ? runs.find((run) => run.ts === openCheck) ?? null : null;
 
   function selectCheck(ts: string | null) {
@@ -443,6 +446,14 @@ export default function Dashboard() {
                         </CardContent>
                       </Card>
                     </div>
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>Tiering proof</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <TieringProof tiers={tiers} />
+                      </CardContent>
+                    </Card>
                     <Card>
                       <CardHeader>
                         <div className="flex items-center justify-between">
@@ -957,6 +968,37 @@ function VerdictBreakdown({ stats }: { stats: RunStats }) {
         );
       })}
     </ul>
+  );
+}
+
+function TieringProof({ tiers }: { tiers: TierStats }) {
+  return (
+    <div>
+      <div className="grid grid-cols-2 gap-4">
+        <div className="rounded-lg border border-line bg-sunken px-4 py-3">
+          <p className="text-[13px] text-ink-dim">Glimmer agree</p>
+          <p className="mt-1 font-mono text-2xl leading-none font-semibold tracking-tight tabular">
+            {formatCount(tiers.local)}
+          </p>
+          <p className="mt-1.5 font-mono text-xs text-ink-faint tabular">$0 · no Spark call</p>
+        </div>
+        <div className="rounded-lg border border-line bg-sunken px-4 py-3">
+          <p className="text-[13px] text-ink-dim">Escalated to Spark</p>
+          <p className="mt-1 font-mono text-2xl leading-none font-semibold tracking-tight tabular">
+            {formatCount(tiers.escalated)}
+          </p>
+          <p className="mt-1.5 font-mono text-xs text-ink-faint tabular">
+            {formatCount(tiers.sparkCalls)} calls · {formatLatency(tiers.sparkMedianLatencyMs)}{" "}
+            median · {formatCost(tiers.sparkTotalCostUsd)}
+          </p>
+        </div>
+      </div>
+      {tiers.validatorsOnly > 0 && (
+        <p className="mt-2 text-xs text-ink-faint">
+          Plus {formatCount(tiers.validatorsOnly)} validator-only checks, also $0.
+        </p>
+      )}
+    </div>
   );
 }
 

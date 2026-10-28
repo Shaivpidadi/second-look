@@ -105,3 +105,56 @@ export function selectRunStats(
     totalCostUsd,
   };
 }
+
+export interface TierStats {
+  /** Runs where Glimmer agreed and no Spark call was made ($0). */
+  local: number;
+  /** Runs with at least one Spark call. */
+  escalated: number;
+  /** Runs with no model calls at all (validators only, $0). */
+  validatorsOnly: number;
+  sparkCalls: number;
+  sparkMedianLatencyMs: number;
+  sparkTotalCostUsd: number;
+}
+
+/** The tiering proof: Glimmer-agree runs vs Spark-escalated runs. */
+export function selectTierStats(runs: Array<{ calls: StatsModelCall[] }>): TierStats {
+  let local = 0;
+  let escalated = 0;
+  let validatorsOnly = 0;
+  let sparkCalls = 0;
+  let sparkTotalCostUsd = 0;
+  const sparkLatencies: number[] = [];
+  for (const run of runs) {
+    const sparks = run.calls.filter((call) => call.model === "spark");
+    if (sparks.length > 0) {
+      escalated += 1;
+      sparkCalls += sparks.length;
+      for (const spark of sparks) {
+        sparkLatencies.push(spark.latencyMs);
+        sparkTotalCostUsd += spark.costUsd;
+      }
+    } else if (run.calls.some((call) => call.model === "glimmer" && call.outcome === "agree")) {
+      local += 1;
+    } else if (run.calls.length === 0) {
+      validatorsOnly += 1;
+    }
+  }
+  sparkLatencies.sort((a, b) => a - b);
+  const mid = Math.floor(sparkLatencies.length / 2);
+  const sparkMedianLatencyMs =
+    sparkLatencies.length === 0
+      ? 0
+      : sparkLatencies.length % 2 === 1
+        ? (sparkLatencies[mid] as number)
+        : ((sparkLatencies[mid - 1] as number) + (sparkLatencies[mid] as number)) / 2;
+  return {
+    local,
+    escalated,
+    validatorsOnly,
+    sparkCalls,
+    sparkMedianLatencyMs,
+    sparkTotalCostUsd,
+  };
+}

@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { buildDemoDataset } from "./demo-data.ts";
-import { groupRuns, selectRunStats } from "./dashboard-stats.ts";
+import { groupRuns, selectRunStats, selectTierStats } from "./dashboard-stats.ts";
 import type { StatsEntry } from "./dashboard-stats.ts";
 
 function entry(overrides: Partial<StatsEntry> & { ts: string; verdict: string }): StatsEntry {
@@ -87,6 +87,48 @@ describe("selectRunStats", () => {
     assert.equal(stats.needsHuman, 5);
     // Median of the fixture latencies, p50 near 3s by design.
     assert.ok(stats.medianLatencyMs > 2000 && stats.medianLatencyMs < 4000);
+  });
+
+  it("splits Glimmer-agree runs from Spark-escalated runs", () => {
+    const glimmerAgree = {
+      model: "glimmer",
+      adapter: "local",
+      outcome: "agree",
+      latencyMs: 200,
+      costUsd: 0,
+    };
+    const spark = (latencyMs: number, costUsd: number) => ({
+      model: "spark",
+      adapter: "muse-spark-1.3",
+      outcome: "escalation",
+      latencyMs,
+      costUsd,
+    });
+    const runs = groupRuns([
+      entry({ ts: "t1", verdict: "clean", modelCalls: [glimmerAgree] }),
+      entry({
+        ts: "t2",
+        verdict: "mismatch",
+        modelCalls: [spark(2000, 0.002), spark(3000, 0.004)],
+      }),
+      entry({ ts: "t3", verdict: "clean" }),
+    ]);
+    const tiers = selectTierStats(runs);
+    assert.equal(tiers.local, 1);
+    assert.equal(tiers.escalated, 1);
+    assert.equal(tiers.validatorsOnly, 1);
+    assert.equal(tiers.sparkCalls, 2);
+    assert.equal(tiers.sparkMedianLatencyMs, 2500);
+    assert.equal(tiers.sparkTotalCostUsd, 0.006);
+  });
+
+  it("pins the demo tiering split: 14 local, 22 escalated, 4 validators-only", () => {
+    const { entries } = buildDemoDataset(Date.now());
+    const tiers = selectTierStats(groupRuns(entries));
+    assert.equal(tiers.local, 14);
+    assert.equal(tiers.escalated, 22);
+    assert.equal(tiers.validatorsOnly, 4);
+    assert.equal(tiers.sparkCalls, 22);
   });
 
   it("shows every non-clean status in the first screenful, newest first", () => {

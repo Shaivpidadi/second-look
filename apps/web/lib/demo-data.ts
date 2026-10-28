@@ -107,13 +107,12 @@ export function buildDemoDataset(baseTs: number): { entries: DemoAuditEntry[]; c
       paperValue: fast ? null : value,
       typedValue: value,
       action: "submit_allow",
-      calls: fast
-        ? []
-        : [glimmer("disagree", range(180, 320)), spark(range(1900, 2800), 0.0021 + rand() * 0.002)],
+      calls: fast ? [] : [glimmer("agree", range(140, 300))],
     });
   };
 
-  // 18 clean: fast validators or local pass, plus spark-confirmed reviews.
+  // 18 clean: fast validators or a local Glimmer agree. Spark only
+  // ever runs on disagreement, so clean checks cost $0.
   const cleanFields: Array<[string, () => string]> = [
     ["awb.awbNumber", () => pick(AWBS)],
     ["bol.bolNumber", () => pick(BOLS)],
