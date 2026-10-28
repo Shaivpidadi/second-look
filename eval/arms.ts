@@ -258,6 +258,7 @@ export const VISION_JUDGE_QUESTION = [
   "bol.weightKg vs awb.weightKg, pod.receivedCartons vs bol.cartons.",
   "Use kind field_match for (1), cross_doc for (2).",
   'List fields you cannot read (blur, glare, skew) under "unreadable" instead of guessing.',
+  'Also list fields you read but are unsure about under "low_confidence".',
   "Every injected error shows as a paper/typed diff or a cross-document gap, so no check-digit math is needed.",
   "Decide quickly and reply immediately with ONLY the JSON object.",
 ].join(" ");
@@ -270,7 +271,8 @@ export interface VisionArmOptions {
 /**
  * Live vision arm: one Spark call per form over all six document images
  * plus typed values. Abstains (needs-human) when the model reports
- * unreadable fields; available only with a key, never in ALL_ARMS.
+ * unreadable or low-confidence fields; available only with a key,
+ * never in ALL_ARMS.
  */
 export function createVisionArms(options: VisionArmOptions = {}): EvalArm[] {
   const available = Boolean(process.env.MODEL_API_KEY ?? process.env.META_API_KEY);
@@ -315,7 +317,8 @@ export function createVisionArms(options: VisionArmOptions = {}): EvalArm[] {
         failures: spark.judgment.failures,
         latencyMs: performance.now() - started,
         costUsd: spark.costUsd,
-        abstained: (spark.unreadable?.length ?? 0) > 0,
+        abstained:
+          (spark.unreadable?.length ?? 0) + (spark.lowConfidence?.length ?? 0) > 0,
       };
     },
   };

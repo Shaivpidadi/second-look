@@ -40,6 +40,8 @@ export interface SparkEscalationOutput {
   judgment?: SparkJudgment;
   /** Field ids the model could not read; absent when all were readable. */
   unreadable?: string[];
+  /** Field ids the model read but flagged as unsure; absent when empty. */
+  lowConfidence?: string[];
 }
 
 /** Spark adapter interface: cloud escalation for disagreements only. */
@@ -203,9 +205,18 @@ function parseJudgment(json: Record<string, unknown>): SparkJudgment | undefined
   };
 }
 
+function parseStringList(json: Record<string, unknown>, key: string): string[] | undefined {
+  const raw = json[key];
+  if (!Array.isArray(raw)) return undefined;
+  return raw.filter((value): value is string => typeof value === "string");
+}
+
 function parseUnreadable(json: Record<string, unknown>): string[] | undefined {
-  if (!Array.isArray(json.unreadable)) return undefined;
-  return json.unreadable.filter((value): value is string => typeof value === "string");
+  return parseStringList(json, "unreadable");
+}
+
+function parseLowConfidence(json: Record<string, unknown>): string[] | undefined {
+  return parseStringList(json, "low_confidence");
 }
 
 function parseFixes(
@@ -328,6 +339,8 @@ export class RealSparkAdapter implements SparkAdapter {
     if (judgment) output.judgment = judgment;
     const unreadable = parseUnreadable(json);
     if (unreadable) output.unreadable = unreadable;
+    const lowConfidence = parseLowConfidence(json);
+    if (lowConfidence) output.lowConfidence = lowConfidence;
     return output;
   }
 }

@@ -84,6 +84,31 @@ describe("vision-real", () => {
     assert.equal(verdict.abstained, true);
   });
 
+  it("abstains when the model reports low-confidence fields", async () => {
+    process.env.MODEL_API_KEY = "test-key";
+    const fetchImpl = (async () =>
+      responsesMessage(
+        '{"explanation": "skew", "flagged": true, "failures": [], "low_confidence": ["label.sscc", 7]}',
+      )) as unknown as typeof fetch;
+    const [arm] = createVisionArms({ fetchImpl });
+    const verdict = await arm!.judge({ form: buildForm("form-v", 2), images: IMAGES });
+    assert.equal(verdict.flagged, true);
+    assert.equal(verdict.abstained, true);
+  });
+
+  it("asks for low-confidence fields in the same judge call", async () => {
+    process.env.MODEL_API_KEY = "test-key";
+    const seen: string[] = [];
+    const fetchImpl = (async (_url: string, init: { body?: string }) => {
+      seen.push(init.body ?? "");
+      return responsesMessage('{"explanation": "ok", "flagged": false}');
+    }) as unknown as typeof fetch;
+    const [arm] = createVisionArms({ fetchImpl });
+    await arm!.judge({ form: buildForm("form-v", 5), images: IMAGES });
+    assert.equal(seen.length, 1);
+    assert.match(seen[0] ?? "", /low_confidence/);
+  });
+
   it("fails loudly without images or without a judgment", async () => {
     process.env.MODEL_API_KEY = "test-key";
     const fetchImpl = (async () =>
