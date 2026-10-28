@@ -64,7 +64,12 @@ export const FRAME_MODEL_CALLS_PER_CHECK = 2;
 
 export const FRAME_CONCEPT = "shipping document";
 
-/** Tighter Spark output cap for frame checks; the verdict JSON is small. */
+/**
+ * Spark output cap for frame checks. Deliberately NOT lowered for speed:
+ * the cap never hurries generation, and a truncated reply parses as
+ * no-judgment, which the frame path would read as a silent clean.
+ * Output stays small through the prompt's own length caps instead.
+ */
 export const FRAME_SPARK_MAX_TOKENS = 768;
 
 export const FRAME_JUDGE_QUESTION = [
@@ -78,7 +83,11 @@ export const FRAME_JUDGE_QUESTION = [
   'List fields you cannot read (blur, glare, skew) under "unreadable" instead of guessing.',
   'Also list fields you read but are unsure about under "low_confidence".',
   'Set "document" to the doc type shown (bol, awb, invoice, packing, pod, label, or unknown),',
-  'and "readings" to every fieldId you read mapped to its PAPER value.',
+  'and "readings" to ONLY these keys when shown, each mapped to its PAPER value:',
+  "bol.weightKg, bol.cartons, awb.weightKg, invoice.totalQty, packing.totalQty, pod.receivedCartons.",
+  "Omit any key not visible; never add other keys.",
+  'Keep "explanation" empty ("") when nothing is flagged, else one sentence of at most 140 characters.',
+  'Keep each failure "detail" under 120 characters.',
   "Reply immediately with ONLY the JSON object.",
 ].join(" ");
 

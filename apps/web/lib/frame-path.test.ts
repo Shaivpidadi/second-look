@@ -17,6 +17,8 @@ import {
   FRAME_CROSSDOC_FIELD_ID,
   FRAME_FIELD_ID,
   FRAME_JUDGE_LONG_SIDE,
+  FRAME_JUDGE_QUESTION,
+  FRAME_SPARK_MAX_TOKENS,
   FRAME_MODEL_CALLS_PER_CHECK,
   frameStateFor,
   handleFramePost,
@@ -752,4 +754,29 @@ test("frame: over-budget frames publish a visible throttled verdict", async () =
   const states = seen.map((verdict) => verdict.state);
   assert.ok(states.includes("throttled"), `expected a throttled verdict, saw ${states}`);
   assert.equal(seen.filter((v) => v.state === "throttled")[0]?.decision, "ALLOW");
+});
+
+test("frame: judge prompt scopes readings to cross-doc keys with length caps", () => {
+  for (const key of [
+    "bol.weightKg",
+    "bol.cartons",
+    "awb.weightKg",
+    "invoice.totalQty",
+    "packing.totalQty",
+    "pod.receivedCartons",
+  ]) {
+    assert.ok(
+      FRAME_JUDGE_QUESTION.includes(key),
+      `question must name reading key ${key}`,
+    );
+  }
+  assert.ok(FRAME_JUDGE_QUESTION.includes("never add other keys"));
+  assert.ok(FRAME_JUDGE_QUESTION.includes("140 characters"));
+  assert.ok(FRAME_JUDGE_QUESTION.includes("120 characters"));
+});
+
+test("frame: spark token cap stays high enough to never truncate", () => {
+  // A truncated reply parses as no-judgment (silent clean), so the cap
+  // is a backstop only; the prompt's own length caps keep output small.
+  assert.equal(FRAME_SPARK_MAX_TOKENS, 768);
 });
