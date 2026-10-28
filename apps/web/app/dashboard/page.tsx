@@ -34,6 +34,7 @@ import {
 } from "../../components/ui/table";
 import { formatCost, formatCount, formatLatency, formatTime } from "../../lib/format";
 import { actionLabel, fieldLabel, verdictLabel } from "../../lib/fields";
+import { auditToCsv, auditToJsonl } from "../../lib/audit-export";
 import {
   groupRuns,
   selectRunStats,
@@ -157,6 +158,17 @@ async function copyText(text: string): Promise<boolean> {
       return false;
     }
   }
+}
+
+function downloadExport(filename: string, body: string, mime: string): void {
+  const url = URL.createObjectURL(new Blob([body], { type: mime }));
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
 }
 
 export default function Dashboard() {
@@ -532,8 +544,38 @@ export default function Dashboard() {
 
                 {view === "audit" && (
                   <Card>
-                    <CardHeader>
+                    <CardHeader className="flex items-center gap-2">
                       <CardTitle>Audit log</CardTitle>
+                      <span className="ml-auto flex gap-2">
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          disabled={visibleEntries.length === 0}
+                          onClick={() =>
+                            downloadExport(
+                              "second-look-audit.jsonl",
+                              auditToJsonl(visibleEntries),
+                              "application/x-ndjson",
+                            )
+                          }
+                        >
+                          JSONL
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          disabled={visibleEntries.length === 0}
+                          onClick={() =>
+                            downloadExport(
+                              "second-look-audit.csv",
+                              auditToCsv(visibleEntries),
+                              "text/csv",
+                            )
+                          }
+                        >
+                          CSV
+                        </Button>
+                      </span>
                     </CardHeader>
                     <CardContent className="!px-2 !pt-0">
                       {visibleEntries.length === 0 ? (
