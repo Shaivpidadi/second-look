@@ -19,6 +19,7 @@ import { Separator } from "../../components/ui/separator";
 import { Skeleton } from "../../components/ui/skeleton";
 import { StatusDot, type StatusTone } from "../../components/ui/status-dot";
 import { formatCost } from "../../lib/format";
+import { fieldLabel } from "../../lib/fields";
 import { cn } from "../../lib/cn";
 import { LiveVerdictTracker, type LiveVerdictMessage } from "../../lib/live-verdict";
 
@@ -273,11 +274,8 @@ export default function ReceivingForm() {
                   {section.fields.map((field) => {
                     const failure = failedFields.get(field.id);
                     return (
-                      <div key={field.id}>
-                        <Label htmlFor={field.id}>
-                          {field.label}{" "}
-                          <span className="font-mono text-xs text-ink-faint">{field.id}</span>
-                        </Label>
+                      <div key={field.id} data-field-id={field.id}>
+                        <Label htmlFor={field.id}>{field.label}</Label>
                         <Input
                           id={field.id}
                           value={values[field.id] ?? ""}
@@ -290,9 +288,7 @@ export default function ReceivingForm() {
                           className={cn(field.mono && "font-mono tabular")}
                         />
                         {failure && (
-                          <FieldError id={`${field.id}-error`}>
-                            {failure.rule}: {failure.message}
-                          </FieldError>
+                          <FieldError id={`${field.id}-error`}>{failure.message}</FieldError>
                         )}
                       </div>
                     );
@@ -321,7 +317,7 @@ export default function ReceivingForm() {
                   <CardTitle>Live verdict</CardTitle>
                   <StatusDot tone={stateTone(live?.state)} pulse={live === null} />
                 </div>
-                <CardDescription>Pushed over SSE as you type.</CardDescription>
+                <CardDescription>Verdicts stream in as you type.</CardDescription>
               </CardHeader>
               <CardContent>
                 {live === null ? (
@@ -350,9 +346,12 @@ export default function ReceivingForm() {
                             key={`${failure.fieldId}-${failure.rule}`}
                             className="rounded-md border border-line bg-sunken p-3"
                           >
-                            <p className="font-mono text-xs text-ink tabular">
-                              {failure.fieldId}{" "}
-                              <span className="text-ink-faint">[{failure.rule}]</span>
+                            <p
+                              className="text-xs font-medium text-ink"
+                              data-field-id={failure.fieldId}
+                              data-rule={failure.rule}
+                            >
+                              {fieldLabel(failure.fieldId)}
                             </p>
                             <p className="mt-1 text-[13px] text-ink-dim">{failure.message}</p>
                             {failure.fix !== undefined && (
@@ -421,9 +420,12 @@ export default function ReceivingForm() {
                             key={`${failure.fieldId}-${failure.rule}`}
                             className="rounded-md border border-line bg-sunken p-3"
                           >
-                            <p className="font-mono text-xs text-ink tabular">
-                              {failure.fieldId}{" "}
-                              <span className="text-ink-faint">[{failure.rule}]</span>
+                            <p
+                              className="text-xs font-medium text-ink"
+                              data-field-id={failure.fieldId}
+                              data-rule={failure.rule}
+                            >
+                              {fieldLabel(failure.fieldId)}
                             </p>
                             <p className="mt-1 text-[13px] text-ink-dim">{failure.message}</p>
                             {failure.fix !== undefined && (

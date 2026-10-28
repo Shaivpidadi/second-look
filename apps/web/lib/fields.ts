@@ -1,0 +1,61 @@
+/**
+ * Human labels for field ids and audit actions. Raw ids stay in the
+ * data layer (and in data attributes for tests); the visible UI only
+ * ever shows these labels.
+ */
+
+const FIELD_LABELS: Record<string, string> = {
+  "awb.awbNumber": "AWB number",
+  "awb.weightKg": "AWB weight",
+  "bol.bolNumber": "BOL number",
+  "bol.carrier": "Carrier",
+  "bol.containerNumber": "Container number",
+  "bol.cartons": "Shipped cartons",
+  "bol.weightKg": "BOL weight",
+  "label.sscc": "SSCC",
+  "invoice.totalQty": "Invoice quantity",
+  "packing.totalQty": "Packing quantity",
+  "pod.receivedCartons": "Received cartons",
+  "pod.exceptionNote": "Exception note",
+};
+
+function prettifySegment(segment: string): string {
+  const words = segment.replace(/([a-z0-9])([A-Z])/g, "$1 $2").toLowerCase();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+/** Visible label for a dotted field id. Unknown ids are prettified. */
+export function fieldLabel(fieldId: string): string {
+  if (fieldId === "*") return "Receipt";
+  const known = FIELD_LABELS[fieldId];
+  if (known) return known;
+  const last = fieldId.split(".").pop() ?? fieldId;
+  return prettifySegment(last);
+}
+
+const BLOCK_REASONS: Record<string, string> = {
+  awb_check_digit: "AWB check digit",
+  container_check_digit: "container check digit",
+  sscc_check_digit: "SSCC check digit",
+  count_mismatch: "count mismatch",
+};
+
+function prettifyCode(code: string): string {
+  return code.replace(/_/g, " ");
+}
+
+/** Visible label for an audit action. Unknown actions are prettified. */
+export function actionLabel(action: string): string {
+  if (action === "submit_allow") return "accepted";
+  if (action === "claim_draft") return "claim drafted";
+  if (action === "fix_proposed") return "fix proposed";
+  if (action === "escalation") return "escalated to Spark";
+  if (action === "flag:cross_doc") return "flagged: documents disagree";
+  if (action === "flag:handwriting") return "flagged: handwriting";
+  if (action === "needs_human:unreadable") return "sent to human: unreadable";
+  if (action.startsWith("submit_block:")) {
+    const rule = action.slice("submit_block:".length);
+    return `blocked (${BLOCK_REASONS[rule] ?? prettifyCode(rule)})`;
+  }
+  return prettifyCode(action);
+}
