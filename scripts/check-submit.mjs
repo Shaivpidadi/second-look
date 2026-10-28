@@ -6,6 +6,9 @@
  *   contains an em dash,
  * - fixtures or seeded data name a real carrier, shipper, or
  *   hook-line-only company,
+ * - a deadline doc states the old 6pm target or SUBMIT.md lacks
+ *   the canonical "Nov 4, 9pm ET (event page)" / "Nov 3, 9pm ET"
+ *   lines,
  * - `pnpm -r test` or `pnpm -r typecheck` fails (the headline
  *   number guard runs inside the eval suite).
  */
@@ -137,7 +140,34 @@ for (const path of FIXTURE_FILES) {
   }
 }
 
-// ---- 4/5. tests, typecheck (number guard runs in the eval suite) ----
+// ---- 4. deadline consistency ----
+const DEADLINE_DOCS = [
+  join(ROOT, "docs/SUBMIT.md"),
+  join(ROOT, "STATUS.md"),
+  join(ROOT, "docs/DEMO.md"),
+  join(ROOT, "README.md"),
+  join(ROOT, "PLAN.md"),
+];
+const STALE_DEADLINE = /6(\s*:\s*00)?\s*pm/i;
+for (const path of DEADLINE_DOCS) {
+  let body;
+  try {
+    body = readFileSync(path, "utf8");
+  } catch {
+    continue;
+  }
+  if (STALE_DEADLINE.test(body)) {
+    fail(`stale 6pm deadline in ${path.slice(ROOT.length + 1)} (want Nov 4, 9pm ET (event page) / Nov 3, 9pm ET)`);
+  }
+}
+const submitBody = readFileSync(join(ROOT, "docs/SUBMIT.md"), "utf8");
+for (const line of ["Nov 4, 9pm ET (event page)", "Nov 3, 9pm ET"]) {
+  if (!submitBody.includes(line)) {
+    fail(`docs/SUBMIT.md lacks the canonical deadline line: ${line}`);
+  }
+}
+
+// ---- 5/6. tests, typecheck (number guard runs in the eval suite) ----
 for (const args of [
   ["-r", "test"],
   ["-r", "typecheck"],

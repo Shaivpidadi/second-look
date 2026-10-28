@@ -1,7 +1,7 @@
 # Submit checklist and entry write-up
 
 Hackathon: Meta Global AI Developer Hackathon, solo indie track.
-Hard deadline: Wed Nov 4, 2026, 9:00 PM ET. Target: submit before 6:00 PM ET.
+Hard deadline: Nov 4, 9pm ET (event page). Internal target: finish by Nov 3, 9pm ET for buffer.
 
 ## Checklist
 

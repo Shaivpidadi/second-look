@@ -239,7 +239,7 @@ all 8 findings fixed. Screens changed, so another reshoot is needed.
   (default 60s, aborts and retries like a 5xx, counts retries in
   call stats), closing the 284s-stall follow-up. Covered by two
   offline tests; offline eval rerun identical on both corpora.
-- Deadline trace (SUBMIT.md text unchanged): "before 6pm ET Nov 4"
+- Deadline trace (SUBMIT.md text unchanged): the submit target
   comes from PLAN.md line 4 (goal) and line 80 (Nov 4 plan), also
   stated in BRIEF.md line 39.
 
@@ -554,7 +554,7 @@ tokens, ~$0.91 total (E2E ~$0.08, vision ~$0.83).
 
 ## Next steps (only real remaining items)
 
-Needs Shaishav (human, before 6pm ET Nov 4):
+Needs Shaishav (human, finish by Nov 3, 9pm ET):
 
 - Run the Android live smoke: docs/ANDROID.md ends with the 5-step
   hand checklist (install APK, glasses camera access, Mac server,

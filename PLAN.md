@@ -1,7 +1,7 @@
 # Second Look — Build Plan (Oct 27–Nov 4)
 
 ## Goal
-Ship a hackathon entry where glasses watch PAPER, a screen reader watches TYPED values, and the system ACTS: catches mismatches live, blocks submit, proposes fixes, logs audit trail, drafts damage claims. Deadline Wed Nov 4, 9pm ET; target submit before 6pm ET.
+Ship a hackathon entry where glasses watch PAPER, a screen reader watches TYPED values, and the system ACTS: catches mismatches live, blocks submit, proposes fixes, logs audit trail, drafts damage claims. Deadline Nov 4, 9pm ET (event page); internal target finish by Nov 3, 9pm ET.
 
 ## Success Criteria
 - Live loop works on mock form: type wrong AWB digit or short count → blocked submit + fix proposal in <5s on fallback-clip path.
@@ -77,7 +77,7 @@ second-look/
 - Sun Nov 1 (6–8h): generator to 100 forms; eval runner + 3-arm report; bugfix from eval; record backup demo clips.
 - Mon Nov 2 (2–3h): FEATURE FREEZE. Real-glasses retest or lock fallback; README; audit export; dry-run demo script.
 - Tue Nov 3 (2–3h): shoot + edit 3-min video; overlay eval numbers; captions; private upload check.
-- Wed Nov 4 (1–2h, before 6pm ET): final submit checklist (video, repo link/zip, description); keep private until submitted; submit.
+- Tue Nov 3 evening (finish by 9pm ET): final submit checklist (video, repo link/zip, description); keep private until submitted; submit. Wed Nov 4 is buffer; hard deadline Nov 4, 9pm ET (event page).
 
 ## Validation Plan
 - Validators: unit tests incl. known-good AWB/container/SSCC numbers + transposition/dropped-digit negatives.
