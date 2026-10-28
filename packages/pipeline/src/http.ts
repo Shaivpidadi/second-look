@@ -1,8 +1,9 @@
 /**
- * Shared Model API transport: retry with backoff for 429/5xx, a hard
- * per-run call budget, and per-process call/token stats for eval reports.
- * Real adapters route every HTTP attempt through `postJson`; stub adapters
- * never touch this module, so unit tests stay offline.
+ * Shared Model API transport: retry with backoff for 429/5xx and hung
+ * calls, a hard per-run call budget, and per-process call/token stats
+ * for eval reports. Real adapters route every HTTP attempt through
+ * `postJson`; stub adapters never touch this module, so unit tests
+ * stay offline.
  */
 
 export interface CallStats {
@@ -77,6 +78,11 @@ export interface RetryOptions {
   sleep?: (ms: number) => Promise<void>;
   /** Retry-After ceiling in ms; default 30000. */
   maxRetryAfterMs?: number;
+  /**
+   * Per-attempt timeout in ms; default 60000. A timed-out attempt
+   * aborts and retries like a 5xx instead of stalling the run.
+   */
+  timeoutMs?: number;
 }
 
 const defaultSleep = (ms: number): Promise<void> =>
@@ -110,33 +116,61 @@ export interface PostJsonOptions {
 }
 
 /**
- * POST JSON with the Model API key, retrying 429/5xx with exponential
- * backoff. Every attempt consumes one call-budget slot. Transport failures
- * and non-retryable statuses throw immediately with the caller prefix.
+ * POST JSON with the Model API key, retrying 429/5xx and timeouts with
+ * exponential backoff. Every attempt consumes one call-budget slot.
+ * Transport failures and non-retryable statuses throw immediately
+ * with the caller prefix.
  */
 export async function postJson(options: PostJsonOptions): Promise<unknown> {
   const maxRetries = options.retry?.maxRetries ?? 3;
   const baseMs = options.retry?.baseMs ?? 500;
   const maxRetryAfterMs = options.retry?.maxRetryAfterMs ?? 30000;
+  const timeoutMs = options.retry?.timeoutMs ?? 60000;
   const sleep = options.retry?.sleep ?? defaultSleep;
   let attempt = 0;
   for (;;) {
     takeCallSlot();
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => {
+        controller.abort();
+        reject(new Error("timed out"));
+      }, timeoutMs);
+    });
     let response: Response;
     try {
-      response = await options.fetchImpl(options.url, {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${options.key}`,
-          "content-type": "application/json",
-        },
-        body: JSON.stringify(options.body),
-      });
+      response = await Promise.race([
+        options.fetchImpl(options.url, {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${options.key}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify(options.body),
+          signal: controller.signal,
+        }),
+        timeout,
+      ]);
     } catch (error) {
+      clearTimeout(timer);
+      if (controller.signal.aborted && attempt < maxRetries) {
+        stats.retriedCalls += 1;
+        const wait = baseMs * 2 ** attempt;
+        attempt += 1;
+        await sleep(wait);
+        continue;
+      }
+      if (controller.signal.aborted) {
+        throw new Error(
+          `${options.what}: Model API request timed out after ${timeoutMs}ms`,
+        );
+      }
       throw new Error(
         `${options.what}: Model API request failed (${error instanceof Error ? error.message : String(error)})`,
       );
     }
+    clearTimeout(timer);
     if (response.ok) {
       return (await response.json()) as unknown;
     }

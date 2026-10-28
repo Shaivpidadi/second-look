@@ -160,6 +160,45 @@ describe("postJson", () => {
     );
     assert.equal(calls, 1);
   });
+
+  it("aborts a hung attempt and retries, then succeeds", async () => {
+    let calls = 0;
+    const fetchImpl = ((url: string, init?: { signal?: AbortSignal }) => {
+      calls += 1;
+      if (calls === 1) return new Promise<Response>(() => {});
+      assert.ok(init?.signal instanceof AbortSignal);
+      return Promise.resolve(jsonResponse({ output_text: "late" }));
+    }) as unknown as typeof fetch;
+    const payload = await postJson({
+      fetchImpl,
+      url: "https://x.test/v1/responses",
+      key: "k",
+      body: {},
+      what: "spark",
+      retry: { timeoutMs: 20, sleep: async () => {} },
+    });
+    assert.deepEqual(payload, { output_text: "late" });
+    assert.equal(getCallStats().httpCalls, 2);
+    assert.equal(getCallStats().retriedCalls, 1);
+  });
+
+  it("throws a timeout error after max retries", async () => {
+    const fetchImpl = (() => new Promise<Response>(() => {})) as unknown as typeof fetch;
+    await assert.rejects(
+      () =>
+        postJson({
+          fetchImpl,
+          url: "https://x.test/v1/responses",
+          key: "k",
+          body: {},
+          what: "sam",
+          retry: { maxRetries: 1, timeoutMs: 10, sleep: async () => {} },
+        }),
+      /sam: Model API request timed out after 10ms/,
+    );
+    assert.equal(getCallStats().httpCalls, 2);
+    assert.equal(getCallStats().retriedCalls, 1);
+  });
 });
 
 describe("call stats", () => {
