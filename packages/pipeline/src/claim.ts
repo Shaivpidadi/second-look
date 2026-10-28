@@ -49,7 +49,7 @@ export function draftClaimTemplate(input: ClaimDraftInput): ClaimDraft {
       ? "Damaged quantity: unspecified (see POD exception)"
       : `Damaged quantity: ${damagedQty} carton${damagedQty === 1 ? "" : "s"}`;
   const body = [
-    `Damage claim — ${input.carrier || "Unknown carrier"}`,
+    `Damage claim for ${input.carrier || "Unknown carrier"}`,
     `BOL ${input.bolRef || "n/a"} / AWB ${input.awbRef || "n/a"}`,
     `POD exception: "${input.exceptionNote}"`,
     qtyLine,

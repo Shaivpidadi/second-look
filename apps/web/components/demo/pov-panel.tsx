@@ -30,7 +30,7 @@ const DOCS: Record<string, { title: string; lines: DocLine[]; crops: Crop[] }> =
   awb: {
     title: "AIR WAYBILL · 879-1541 9121",
     lines: [
-      { label: "Shipper", value: "Revlon Consumer Products" },
+      { label: "Shipper", value: "Meridian Foods Ltd" },
       { label: "Consignee", value: "Harbour Line Goods Ltd" },
       { label: "Flight", value: "HL-2207 / 14 OCT" },
       { label: "AWB no.", value: "879-1541 9121", hot: true },
@@ -43,7 +43,7 @@ const DOCS: Record<string, { title: string; lines: DocLine[]; crops: Crop[] }> =
   invoice: {
     title: "INVOICE + PACKING LIST · INV-90412",
     lines: [
-      { label: "Seller", value: "Revlon Consumer Products" },
+      { label: "Seller", value: "Meridian Foods Ltd" },
       { label: "Invoice qty", value: "363", hot: true },
       { label: "Packing qty", value: "365", hot: true },
       { label: "Line 1", value: "Lipstick · 200 pcs" },

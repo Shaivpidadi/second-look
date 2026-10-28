@@ -241,7 +241,7 @@ function DemoInner() {
       <div className="border-t border-line px-3 pb-3 pt-2">
         <div className="mb-2 flex items-center justify-between px-1">
           <p className="text-xs font-medium text-ink-dim">
-            {step.kicker} — {step.title}
+            {step.kicker} · {step.title}
             <span className="ml-2 font-normal text-ink-faint">{step.hint}</span>
           </p>
           {!record && (

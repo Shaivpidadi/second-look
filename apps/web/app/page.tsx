@@ -10,7 +10,7 @@ const FEATURES = [
   {
     n: "01",
     title: "Reads the paper through Ray-Ban Meta glasses",
-    body: "POV frames stream at 2–7 fps. Document crops localize every page on the dock — no scanning, no re-typing from photos.",
+    body: "POV frames stream at 2 to 7 fps. Document crops localize every page on the dock. Nothing to scan, nothing to retype from photos.",
     icon: ScanEye,
   },
   {
@@ -74,9 +74,9 @@ export default function Home() {
               The co-signer that actually reads the paperwork.
             </h1>
             <p className="mt-6 max-w-lg text-[17px] leading-relaxed text-ink-dim">
-              In 2024 a single digit mix-up cost Revlon $1M. Second Look
-              reads the paper before you sign — glasses on the documents,
-              a reader on the keystrokes, and a gate on submit.
+              In 2020 Citibank wired $900M to Revlon&apos;s lenders by
+              mistake. The screen looked right. Nobody read it twice.
+              Second Look reads the paperwork before you sign.
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-3">
               <Button size="lg" asChild>

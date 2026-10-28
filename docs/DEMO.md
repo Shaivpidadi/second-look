@@ -39,17 +39,17 @@ pnpm --filter @second-look/web start --port 3100
 
 ## Script
 
-### 0:00-0:20 — Cold open (problem)
+### 0:00 to 0:20: Cold open (problem)
 
 "Every air waybill gets typed by hand at least once. One swapped digit
 in the AWB number and the shipment sits at customs while someone
 re-keys eleven digits from a photo. Second Look checks the typing
 against the paper, live, through the glasses."
 
-Overlay: `check-digit-only recall: 60.0% standard, 39.4% hard` —
-validators alone miss most real errors.
+Overlay: `check-digit-only recall: 60.0% standard, 39.4% hard`.
+Validators alone miss most real errors.
 
-### 0:20-1:00 — Live check 1: swapped AWB (block + fix)
+### 0:20 to 1:00: Live check 1: swapped AWB (block + fix)
 
 Run the replay (or recorded POV): typed AWB has two digits swapped.
 
@@ -64,7 +64,7 @@ Run the replay (or recorded POV): typed AWB has two digits swapped.
 Say: "Validators block instantly and for free; the model only gets
 called to explain and propose the fix."
 
-### 1:00-1:40 — Live check 2: qty gap plus damage note (flag + claim)
+### 1:00 to 1:40: Live check 2: qty gap plus damage note (flag + claim)
 
 Second scenario: invoice says 363, packing list says 365, POD note
 reads "2 cartons damaged".
@@ -76,7 +76,7 @@ reads "2 cartons damaged".
 - Repeat view is instant: shared caches serve the claim check in
   ~340ms with zero new calls.
 
-### 1:40-2:20 — The numbers (eval overlay)
+### 1:40 to 2:20: The numbers (eval overlay)
 
 100-form standard corpus, 40-form hard corpus (near-miss check
 digits, diff-free cross-doc gaps, notes everywhere, blur/glare/skew):
@@ -96,22 +96,22 @@ digits, diff-free cross-doc gaps, notes everywhere, blur/glare/skew):
 Say: "Check digits alone collapse on the hard split. The tiered
 pipeline holds 98.8-100% recall at about a third of a cent per form
 for text, a cent and a half with full vision. The vision arm reads
-paper straight from degraded pixels — including five
-validator-blind near-miss forms — and abstains to needs-human when
+paper straight from degraded pixels, including five
+validator-blind near-miss forms, and abstains to needs-human when
 it cannot read a field."
 
 Note: abstention is wired and tested; live runs so far report 0
 abstentions (the model reads through even 3x-stacked blur rather
 than abstaining). Do not claim abstentions were observed.
 
-### 2:20-2:50 — Architecture in 30 seconds
+### 2:20 to 2:50: Architecture in 30 seconds
 
 "Validators first, always free. A local pass over crops. Cloud only
-on disagreement — one call per verdict, text first for speed, images
+on disagreement. One call per verdict: text first for speed, images
 for grounding. Keyframes cut fifteen frames to three; caches make
 repeats free; unreadable fields go to a human, never a silent pass."
 
-### 2:50-3:00 — Close
+### 2:50 to 3:00: Close
 
 "What ships next: on-glasses recording, local Glimmer weights, and
 the single-keyframe fast path already landing first verdicts under

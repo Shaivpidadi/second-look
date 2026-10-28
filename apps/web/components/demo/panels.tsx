@@ -20,8 +20,8 @@ export function TitleCard({ onStart }: { onStart: () => void }) {
     >
       <Wordmark />
       <p className="mt-6 max-w-xl text-balance text-2xl font-medium leading-snug text-ink">
-        In 2024, a single digit mix-up cost Revlon $1M. Second Look checks the paperwork
-        against the goods — before you sign.
+        In 2020 Citibank wired $900M to Revlon&apos;s lenders by mistake.
+        Second Look checks the paperwork against the goods before you sign.
       </p>
       <p className="mt-3 font-mono text-sm text-ink-faint">4 moments · about 2 minutes · fixtures, no network</p>
       <button
@@ -75,7 +75,7 @@ export function DemoFormPanel({ step }: { step: DemoStep }) {
         ))}
         {step.fix && (
           <div className="rounded-lg border border-dashed border-line p-3 text-xs text-ink-dim">
-            Fix available: <span className="font-mono text-ink">{step.fix.value}</span> — apply on the{" "}
+            Fix available: <span className="font-mono text-ink">{step.fix.value}</span>. Apply it on the{" "}
             <span className="text-ink">/form</span> page.
           </div>
         )}
@@ -93,9 +93,9 @@ export function DemoFormPanel({ step }: { step: DemoStep }) {
           }
         >
           {step.verdict === "clean" ? (
-            <>Submit gate: <span className="font-medium text-pass">OPEN</span> — receipt accepted.</>
+            <>Submit gate: <span className="font-medium text-pass">OPEN</span>. Receipt accepted.</>
           ) : (
-            <>Submit gate: <span className="font-medium text-block">BLOCKED</span> — resolve the flagged field{step.verdict === "mismatch" ? "s" : ""} to submit.</>
+            <>Submit gate: <span className="font-medium text-block">BLOCKED</span>. Resolve the flagged field{step.verdict === "mismatch" ? "s" : ""} to submit.</>
           )}
         </div>
       </div>
@@ -152,7 +152,7 @@ export function DemoSidePanel({
       <div className="min-h-0 flex-1 rounded-xl border border-line bg-sunken p-3">
         <p className="mb-2 px-1 text-xs font-medium text-ink-dim">Audit trail</p>
         <ul className="space-y-1.5">
-          {audit.length === 0 && <li className="px-1 text-xs text-ink-faint">Nothing yet — advance a moment.</li>}
+          {audit.length === 0 && <li className="px-1 text-xs text-ink-faint">Nothing yet. Advance a moment.</li>}
           {audit.map((a, i) => (
             <li key={`${a.time}-${i}`} className="rounded-lg bg-panel px-2.5 py-2">
               <div className="flex items-center justify-between">

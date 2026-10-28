@@ -100,7 +100,7 @@ function docType(fieldId: string): string {
     invoice: "Invoice",
     packing: "Packing",
   };
-  return names[prefix] ?? "—";
+  return names[prefix] ?? "Other";
 }
 
 interface CheckRun {
@@ -427,7 +427,7 @@ export default function Dashboard() {
                       <CardContent className="!px-2 !pt-0">
                         <ChecksTable
                           runs={visibleRuns.slice(0, 8)}
-                          empty="No checks yet — submit the receiving form to create some."
+                          empty="No checks yet. Submit the receiving form to create some."
                           onSelect={(ts) => selectCheck(ts)}
                         />
                       </CardContent>
@@ -446,7 +446,7 @@ export default function Dashboard() {
                         empty={
                           queryText
                             ? `No checks match "${query}".`
-                            : "No checks yet — submit the receiving form to create some."
+                            : "No checks yet. Submit the receiving form to create some."
                         }
                         onSelect={(ts) => selectCheck(ts)}
                       />
@@ -485,7 +485,7 @@ export default function Dashboard() {
                           </div>
                           <div className="mx-auto max-w-2xl px-5 py-8">
                             <p className="text-lg font-semibold tracking-tight">
-                              Damage claim — {claim.carrier || "Unknown carrier"}
+                              Damage claim: {claim.carrier || "Unknown carrier"}
                             </p>
                             <dl className="mt-4 grid grid-cols-2 gap-x-8 gap-y-2 text-sm">
                               <dt className="text-ink-faint">BOL reference</dt>
@@ -527,7 +527,7 @@ export default function Dashboard() {
                           body={
                             queryText
                               ? `Nothing matches "${query}".`
-                              : "Submit the receiving form — every decision lands here."
+                              : "Submit the receiving form. Every decision lands here."
                           }
                         />
                       ) : (
@@ -551,7 +551,7 @@ export default function Dashboard() {
                                   {entry.fieldId}
                                 </TableCell>
                                 <TableCell className="max-w-48 truncate font-mono text-[13px] tabular">
-                                  {entry.typedValue ?? "—"}
+                                  {entry.typedValue ?? "n/a"}
                                 </TableCell>
                                 <TableCell>
                                   <Badge tone={verdictTone(entry.verdict)}>
@@ -674,10 +674,10 @@ function ChecksTable({
                 <Badge tone={verdictTone(run.verdict)}>{run.verdict}</Badge>
               </TableCell>
               <TableCell className="text-ink-dim">
-                {first ? docType(first.fieldId) : "—"}
+                {first ? docType(first.fieldId) : "n/a"}
               </TableCell>
               <TableCell className="max-w-44 truncate font-mono text-[13px] tabular">
-                {first?.typedValue ?? first?.fieldId ?? "—"}
+                {first?.typedValue ?? first?.fieldId ?? "n/a"}
               </TableCell>
               <TableCell className="text-[13px] text-ink-dim">{modelLabel(run)}</TableCell>
               <TableCell className="font-mono text-[13px] tabular">
@@ -716,7 +716,7 @@ function CheckDrawer({ run, onClose }: { run: CheckRun; onClose: () => void }) {
             <h3 className="text-[13px] font-semibold tracking-tight">Verdict reasoning</h3>
             {run.calls.length === 0 ? (
               <p className="mt-2 text-[13px] text-ink-dim">
-                Decided by deterministic validators — no model call.
+                Decided by deterministic validators with no model call.
               </p>
             ) : (
               <ul className="mt-2 space-y-2">
@@ -761,7 +761,7 @@ function CheckDrawer({ run, onClose }: { run: CheckRun; onClose: () => void }) {
                       <TableRow key={`${entry.fieldId}-${i}`}>
                         <TableCell className="font-mono text-xs">{entry.fieldId}</TableCell>
                         <TableCell className="font-mono text-xs tabular">
-                          {entry.paperValue ?? "—"}
+                          {entry.paperValue ?? "n/a"}
                         </TableCell>
                         <TableCell
                           className={cn(
@@ -769,7 +769,7 @@ function CheckDrawer({ run, onClose }: { run: CheckRun; onClose: () => void }) {
                             differs && "text-warn",
                           )}
                         >
-                          {entry.typedValue ?? "—"}
+                          {entry.typedValue ?? "n/a"}
                         </TableCell>
                       </TableRow>
                     );
@@ -781,8 +781,8 @@ function CheckDrawer({ run, onClose }: { run: CheckRun; onClose: () => void }) {
           <section>
             <h3 className="text-[13px] font-semibold tracking-tight">Crops</h3>
             <p className="mt-2 rounded-md border border-dashed border-line bg-sunken p-3 text-[13px] text-ink-dim">
-              Frame crops are captured on the clip path, not on web submits —
-              this run judged typed values only.
+              Frame crops are captured on the clip path, not on web submits.
+              This run judged typed values only.
             </p>
           </section>
           <section>

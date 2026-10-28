@@ -76,7 +76,7 @@ export const DEMO_STEPS: DemoStep[] = [
       {
         from: "spark",
         title: "Fix proposed",
-        body: "Paper holds 87915419121 — one transposition away. Submit stays blocked until applied.",
+        body: "Paper holds 87915419121, one transposition away. Submit stays blocked until applied.",
         tone: "info",
         model: "spark · muse-spark-1.3",
         latencyMs: 2840,
@@ -92,7 +92,7 @@ export const DEMO_STEPS: DemoStep[] = [
     id: "qty-gap",
     kicker: "Moment 2 of 4",
     title: "Invoice vs packing list",
-    hint: "Paper matches typed — but the documents disagree with each other.",
+    hint: "Paper matches typed, but the documents disagree with each other.",
     doc: "invoice",
     verdict: "mismatch",
     fields: [
@@ -114,7 +114,7 @@ export const DEMO_STEPS: DemoStep[] = [
       {
         from: "spark",
         title: "Escalation note",
-        body: "No typo — the source documents disagree. Hold the receipt, confirm with the supplier.",
+        body: "No typo here. The source documents disagree, so hold the receipt and confirm with the supplier.",
         tone: "info",
         model: "spark · muse-spark-1.3",
         latencyMs: 3210,
@@ -168,7 +168,7 @@ export const DEMO_STEPS: DemoStep[] = [
     id: "clean-submit",
     kicker: "Moment 4 of 4",
     title: "Clean submit",
-    hint: "Everything agrees — receipt accepted, nothing escalated.",
+    hint: "Everything agrees. Receipt accepted, nothing escalated.",
     doc: "clean",
     verdict: "clean",
     fields: [
@@ -190,7 +190,7 @@ export const DEMO_STEPS: DemoStep[] = [
       {
         from: "glimmer",
         title: "Local pass agrees",
-        body: "Crops match typed values. No Spark call — $0 this receipt.",
+        body: "Crops match typed values. No Spark call, so $0 this receipt.",
         tone: "pass",
         model: "glimmer · stub",
         latencyMs: 176,

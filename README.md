@@ -39,22 +39,23 @@ they leave the dock.
                  [Fix]          [Audit log]          [Claim]          [Dashboard]
 ```
 
-- `apps/web` — Next.js: mock warehouse form (`/form`), dashboard
-  (`/dashboard`), API routes (`/api/events`, `/api/submit`,
-  `/api/verdicts`, `/api/claims`, `/api/audit`). Live verdicts reach the
-  form over SSE with per-field debounce and session sequence numbers.
-- `packages/validators` — check-digit validators (AWB, ISO 6346, GS1/SSCC),
-  zero dependencies.
-- `packages/pipeline` — SAM crop, Glimmer, Spark, verdict, audit, claim,
-  audit export. Deterministic validators run before any model call; the
-  Glimmer local pass runs before any cloud call; Spark sees only redacted
-  payloads on disagreement.
-- `eval/generator` — synthetic documents (6 types) plus a seeded error
-  injector. No real PII.
-- `eval` — eval runner over a generated corpus (3 arms:
+- `apps/web`: Next.js app with the mock warehouse form (`/form`),
+  dashboard (`/dashboard`), and API routes (`/api/events`,
+  `/api/submit`, `/api/verdicts`, `/api/claims`, `/api/audit`). Live
+  verdicts reach the form over SSE with per-field debounce and
+  session sequence numbers.
+- `packages/validators`: check-digit validators (AWB, ISO 6346,
+  GS1/SSCC) with zero dependencies.
+- `packages/pipeline`: SAM crop, Glimmer, Spark, verdict, audit,
+  claim, and audit export. Deterministic validators run before any
+  model call; the Glimmer local pass runs before any cloud call;
+  Spark sees only redacted payloads on disagreement.
+- `eval/generator`: synthetic documents (6 types) plus a seeded
+  error injector. No real PII.
+- `eval`: eval runner over a generated corpus (3 arms:
   check-digit-only, single-model, tiered) plus the clip path
   (`eval/clips`: render, ingest, scripted E2E, audit export).
-- `clips/` — POV fallback clips plus sidecars and E2E audit exports.
+- `clips/`: POV fallback clips plus sidecars and E2E audit exports.
   Generated, gitignored; record real POV clips by hand.
 
 ## Setup

@@ -4,7 +4,7 @@ import { GeistSans } from "geist/font/sans";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Second Look — the co-signer that reads the paperwork",
+  title: "Second Look: the co-signer that reads the paperwork",
   description:
     "Glasses watch the paper, a screen reader watches the typed values, and Second Look blocks the mistake before submit.",
 };
