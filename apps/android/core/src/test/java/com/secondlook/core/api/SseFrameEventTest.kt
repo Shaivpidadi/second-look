@@ -29,7 +29,9 @@ class SseFrameEventTest {
         assertEquals("s1", decoded["sessionId"])
         assertEquals("frame.pov", decoded["fieldId"])
         assertEquals("2026-10-28T00:00:00.000Z", decoded["ts"])
-        val roundTrip = Base64.getDecoder().decode(decoded["value"] as String)
+        val value = decoded["value"] as String
+        assertTrue(value.startsWith("data:image/jpeg;base64,"))
+        val roundTrip = Base64.getDecoder().decode(value.substringAfter(","))
         assertTrue(roundTrip.contentEquals(jpeg))
     }
 

@@ -52,6 +52,12 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
     var serverUrl = "http://10.0.2.2:3100"
         private set
 
+    /**
+     * Manual chroma-order override: flips the undetectable V-first /
+     * U-first order when the preview colors look wrong on the day.
+     */
+    var chromaSwapped = false
+
     /** Stable session id for this run; the dashboard can watch it. */
     val sessionId: String = UUID.randomUUID().toString()
 
@@ -89,6 +95,7 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
     private var session: DeviceSession? = null
     private var camera: Camera? = null
     private var jobs: List<Job> = emptyList()
+    private var loggedOrder = false
 
     init {
         viewModelScope.launch {
@@ -124,6 +131,7 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
     /** Start session, camera, upload, and verdict stream. */
     fun start() {
         if (_streaming.value) return
+        loggedOrder = false
         viewModelScope.launch {
             if (!ensureCameraPermission()) return@launch
             val newSession = Wearables.createSession(AutoDeviceSelector()).getOrNull()
@@ -239,8 +247,22 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
         api: SecondLookApi,
     ) {
         if (frame.isCompressed || frame.isCodecConfig) return
+        if (!loggedOrder) {
+            loggedOrder = true
+            val order = withContext(Dispatchers.Default) {
+                YuvJpeg.detect(frame.buffer, frame.width, frame.height)
+            }
+            Log.i(TAG, "glasses frame layout: ${order ?: "unparseable"} ${frame.width}x${frame.height}")
+        }
         val jpeg = withContext(Dispatchers.Default) {
-            YuvJpeg.encode(frame.buffer, frame.width, frame.height, isCompressed = false, JPEG_QUALITY)
+            YuvJpeg.encode(
+                frame.buffer,
+                frame.width,
+                frame.height,
+                isCompressed = false,
+                JPEG_QUALITY,
+                chromaSwapped,
+            )
         } ?: return
         withContext(Dispatchers.Default) {
             YuvJpeg.decode(jpeg)
