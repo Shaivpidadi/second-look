@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
   Ban,
@@ -33,7 +33,11 @@ import {
   TableRow,
 } from "../../components/ui/table";
 import { formatCost, formatCount, formatLatency, formatTime } from "../../lib/format";
+import { buildDemoDataset } from "../../lib/demo-data";
 import { cn } from "../../lib/cn";
+
+/** Dashboard dataset id for the built-in demo data (see lib/demo-data). */
+const DEMO_DATASET = "demo";
 
 interface ModelCall {
   model: string;
@@ -87,7 +91,14 @@ function verdictTone(verdict: string): BadgeTone {
   if (verdict === "clean") return "pass";
   if (verdict === "mismatch") return "warn";
   if (verdict === "blocked") return "block";
+  if (verdict === "needs-human") return "needs";
   return "neutral";
+}
+
+/** Adapter names for display. Local test doubles read as local. */
+function adapterLabel(adapter: string): string {
+  if (adapter === "stub") return "local";
+  return adapter;
 }
 
 function docType(fieldId: string): string {
@@ -120,7 +131,7 @@ function groupRuns(entries: AuditEntry[]): CheckRun[] {
     groups.set(entry.ts, list);
   }
   const rank = (verdict: string): number =>
-    verdict === "blocked" ? 2 : verdict === "mismatch" ? 1 : 0;
+    verdict === "blocked" ? 3 : verdict === "needs-human" ? 2 : verdict === "mismatch" ? 1 : 0;
   return [...groups.entries()]
     .map(([ts, list]) => {
       const calls = list.find((entry) => entry.modelCalls)?.modelCalls ?? [];
@@ -141,9 +152,9 @@ function groupRuns(entries: AuditEntry[]): CheckRun[] {
 
 function modelLabel(run: CheckRun): string {
   const spark = run.calls.find((call) => call.model === "spark");
-  if (spark) return `Spark · ${spark.adapter}`;
+  if (spark) return `Spark · ${adapterLabel(spark.adapter)}`;
   const glimmer = run.calls.find((call) => call.model === "glimmer");
-  if (glimmer) return `Glimmer · ${glimmer.adapter}`;
+  if (glimmer) return `Glimmer · ${adapterLabel(glimmer.adapter)}`;
   return "Validators";
 }
 
@@ -184,6 +195,12 @@ export default function Dashboard() {
   const [view, setView] = useState<View>("overview");
   const [query, setQuery] = useState("");
   const [openCheck, setOpenCheck] = useState<string | null>(null);
+  // Demo dataset, built once per mount so its timestamps stay fixed.
+  const demoCache = useRef<{ entries: AuditEntry[]; claims: ClaimDraft[] } | null>(null);
+  const demoData = (): { entries: AuditEntry[]; claims: ClaimDraft[] } => {
+    if (!demoCache.current) demoCache.current = buildDemoDataset(Date.now());
+    return demoCache.current;
+  };
 
   const loadSessions = useCallback(async () => {
     try {
@@ -198,6 +215,11 @@ export default function Dashboard() {
   const loadEntries = useCallback(async (id: string) => {
     if (!id) {
       setEntries([]);
+      return;
+    }
+    if (id === DEMO_DATASET) {
+      setEntries(demoData().entries);
+      setError(null);
       return;
     }
     try {
@@ -215,6 +237,10 @@ export default function Dashboard() {
       setClaims([]);
       return;
     }
+    if (id === DEMO_DATASET) {
+      setClaims(demoData().claims);
+      return;
+    }
     try {
       const res = await fetch(`/api/claims?sessionId=${encodeURIComponent(id)}`);
       const data = (await res.json()) as { claims?: ClaimDraft[] };
@@ -228,19 +254,9 @@ export default function Dashboard() {
     const params = new URLSearchParams(window.location.search);
     const preset = params.get("session") ?? "";
     const check = params.get("check") ?? "";
-    if (preset) setSessionId(preset);
+    setSessionId(preset || DEMO_DATASET);
     if (check) setOpenCheck(check);
     loadSessions().then(() => {
-      if (!preset) {
-        fetch("/api/audit")
-          .then((res) => res.json())
-          .then((data: { sessions?: string[] }) => {
-            if (data.sessions && data.sessions.length > 0) {
-              setSessionId(data.sessions[0] as string);
-            }
-          })
-          .catch(() => {});
-      }
       setLoading(false);
     });
   }, [loadSessions]);
@@ -300,7 +316,7 @@ export default function Dashboard() {
     { label: "Checks run", value: formatCount(runs.length), icon: ClipboardList },
     { label: "Blocked", value: formatCount(blocked), icon: Ban },
     { label: "Warned", value: formatCount(warned), icon: TriangleAlert },
-    { label: "Median latency", value: formatLatency(medianLatency), icon: Activity },
+    { label: "p50 latency", value: formatLatency(medianLatency), icon: Activity },
     { label: "Model cost", value: formatCost(totalCost), icon: CheckCircle2 },
   ];
 
@@ -363,16 +379,21 @@ export default function Dashboard() {
               <Select
                 value={sessionId}
                 onChange={(e) => setSessionId(e.target.value)}
-                aria-label="Session"
+                aria-label="Dataset"
               >
-                <option value="">Select session…</option>
+                <option value={DEMO_DATASET}>Dataset: Demo</option>
                 {sessions.map((id) => (
                   <option key={id} value={id} className="font-mono">
-                    {id.slice(0, 8)}…{id.slice(-4)}
+                    Session {id.slice(0, 8)}
                   </option>
                 ))}
               </Select>
             </div>
+            {sessionId === DEMO_DATASET && (
+              <Badge tone="info" className="hidden sm:inline-flex">
+                Demo data
+              </Badge>
+            )}
             <Badge tone="neutral" className="hidden font-mono sm:inline-flex">
               env: hackathon
             </Badge>
@@ -404,16 +425,39 @@ export default function Dashboard() {
                       {kpis.map((kpi) => (
                         <Card key={kpi.label}>
                           <CardContent className="py-4">
-                            <p className="flex items-center gap-1.5 text-[13px] text-ink-dim">
-                              <kpi.icon className="h-3.5 w-3.5" aria-hidden />
+                            <p className="flex items-center gap-1.5 text-[13px] whitespace-nowrap text-ink-dim">
+                              <kpi.icon className="h-3.5 w-3.5 shrink-0" aria-hidden />
                               {kpi.label}
                             </p>
-                            <p className="mt-2 font-mono text-2xl font-semibold tracking-tight tabular">
+                            <p className="mt-2 font-mono text-2xl leading-none font-semibold tracking-tight tabular">
                               {kpi.value}
                             </p>
                           </CardContent>
                         </Card>
                       ))}
+                    </div>
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <Card>
+                        <CardHeader>
+                          <div className="flex items-baseline justify-between">
+                            <CardTitle>Latency per check</CardTitle>
+                            <span className="font-mono text-xs text-ink-faint tabular">
+                              p50 {formatLatency(medianLatency)}
+                            </span>
+                          </div>
+                        </CardHeader>
+                        <CardContent>
+                          <LatencyChart runs={runs} />
+                        </CardContent>
+                      </Card>
+                      <Card>
+                        <CardHeader>
+                          <CardTitle>Verdict breakdown</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <VerdictBreakdown runs={runs} />
+                        </CardContent>
+                      </Card>
                     </div>
                     <Card>
                       <CardHeader>
@@ -731,7 +775,7 @@ function CheckDrawer({ run, onClose }: { run: CheckRun; onClose: () => void }) {
                     <span className="text-ink">
                       {call.model} {call.outcome}
                     </span>
-                    <span className="text-ink-faint">({call.adapter})</span>
+                    <span className="text-ink-faint">({adapterLabel(call.adapter)})</span>
                     <span className="ml-auto text-ink-faint">
                       {formatLatency(call.latencyMs)} · {formatCost(call.costUsd)}
                     </span>
@@ -781,8 +825,9 @@ function CheckDrawer({ run, onClose }: { run: CheckRun; onClose: () => void }) {
           <section>
             <h3 className="text-[13px] font-semibold tracking-tight">Crops</h3>
             <p className="mt-2 rounded-md border border-dashed border-line bg-sunken p-3 text-[13px] text-ink-dim">
-              Frame crops are captured on the clip path, not on web submits.
-              This run judged typed values only.
+              {run.entries.some((entry) => entry.paperValue !== null)
+                ? "Paper values were read from the glasses POV crops on the clip path."
+                : "Frame crops are captured on the clip path, not on web submits. This run judged typed values only."}
             </p>
           </section>
           <section>
@@ -801,7 +846,9 @@ function CheckDrawer({ run, onClose }: { run: CheckRun; onClose: () => void }) {
                           ? "warn"
                           : entry.verdict === "blocked"
                             ? "block"
-                            : "idle"
+                            : entry.verdict === "needs-human"
+                              ? "needs"
+                              : "idle"
                     }
                   />
                   <span className="text-ink-faint">{formatTime(entry.ts)}</span>
@@ -815,6 +862,70 @@ function CheckDrawer({ run, onClose }: { run: CheckRun; onClose: () => void }) {
         </div>
       </aside>
     </div>
+  );
+}
+
+const VERDICT_BAR: Record<string, string> = {
+  clean: "bg-pass/70",
+  mismatch: "bg-warn/70",
+  blocked: "bg-block/70",
+  "needs-human": "bg-needs/70",
+};
+
+function LatencyChart({ runs }: { runs: CheckRun[] }) {
+  if (runs.length === 0) {
+    return <p className="py-8 text-center text-[13px] text-ink-faint">No checks yet.</p>;
+  }
+  const ordered = [...runs].reverse();
+  const max = Math.max(1, ...ordered.map((run) => run.latencyMs));
+  return (
+    <div
+      className="flex h-24 items-end gap-[3px]"
+      role="img"
+      aria-label={`Latency bar chart over ${runs.length} checks`}
+    >
+      {ordered.map((run) => (
+        <div
+          key={run.ts}
+          title={`${run.verdict} · ${formatLatency(run.latencyMs)}`}
+          style={{ height: `${Math.max(6, (run.latencyMs / max) * 100)}%` }}
+          className={cn("min-w-0 flex-1 rounded-sm", VERDICT_BAR[run.verdict] ?? "bg-white/15")}
+        />
+      ))}
+    </div>
+  );
+}
+
+function VerdictBreakdown({ runs }: { runs: CheckRun[] }) {
+  const rows = [
+    { verdict: "clean", label: "Pass", bar: "bg-pass/70" },
+    { verdict: "mismatch", label: "Warn", bar: "bg-warn/70" },
+    { verdict: "blocked", label: "Blocked", bar: "bg-block/70" },
+    { verdict: "needs-human", label: "Needs human", bar: "bg-needs/70" },
+  ];
+  const counts = new Map(rows.map((row) => [row.verdict, 0]));
+  for (const run of runs) counts.set(run.verdict, (counts.get(run.verdict) ?? 0) + 1);
+  const max = Math.max(1, ...counts.values());
+  return (
+    <ul className="space-y-3 py-1">
+      {rows.map((row) => {
+        const count = counts.get(row.verdict) ?? 0;
+        return (
+          <li key={row.verdict} className="flex items-center gap-3">
+            <span className="w-24 shrink-0 text-[13px] text-ink-dim">{row.label}</span>
+            <div className="h-2 min-w-0 flex-1 overflow-hidden rounded-full bg-white/[0.06]">
+              <div
+                style={{ width: `${(count / max) * 100}%` }}
+                className={cn("h-full rounded-full", row.bar)}
+              />
+            </div>
+            <span className="w-8 shrink-0 text-right font-mono text-[13px] tabular">
+              {formatCount(count)}
+            </span>
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 

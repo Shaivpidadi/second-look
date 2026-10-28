@@ -96,7 +96,7 @@ async function main(): Promise<void> {
     // ---- dashboard ----
     const dash = await browser.newPage({ viewport: { width: 1440, height: 900 } });
     dash.on("pageerror", (e) => console.error("dashboard pageerror:", e.message));
-    await dash.goto(`${BASE}/dashboard?session=shots-blocked`, { waitUntil: "networkidle" });
+    await dash.goto(`${BASE}/dashboard?session=demo`, { waitUntil: "networkidle" });
     await dash.waitForTimeout(2500); // session load + one poll
     await shot(dash, "dashboard-overview-1440.png");
     await dash.getByRole("button", { name: "Checks" }).click();
@@ -109,7 +109,7 @@ async function main(): Promise<void> {
     await shot(dash, "dashboard-drawer-1440.png");
     await dash.keyboard.press("Escape").catch(() => {});
     await dash.getByRole("button", { name: "Close check detail" }).click().catch(() => {});
-    await dash.goto(`${BASE}/dashboard?session=shots-claim`, { waitUntil: "networkidle" });
+    await dash.goto(`${BASE}/dashboard?session=demo`, { waitUntil: "networkidle" });
     await dash.waitForTimeout(2500);
     await dash.getByRole("button", { name: "Claims" }).click();
     await dash.waitForTimeout(500);
