@@ -20,6 +20,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -38,15 +39,18 @@ import com.secondlook.core.api.verdictLabel
 @Composable
 fun MainScreen(viewModel: SessionViewModel, activity: Activity) {
     val registered by viewModel.isRegistered.collectAsState()
-    if (registered) {
-        CameraScreen(viewModel)
+    var showPreflight by remember { mutableStateOf(false) }
+    if (showPreflight) {
+        PreflightScreen(viewModel, onBack = { showPreflight = false })
+    } else if (registered) {
+        CameraScreen(viewModel, onPreflight = { showPreflight = true })
     } else {
-        RegistrationScreen(viewModel, activity)
+        RegistrationScreen(viewModel, activity, onPreflight = { showPreflight = true })
     }
 }
 
 @Composable
-fun RegistrationScreen(viewModel: SessionViewModel, activity: Activity) {
+fun RegistrationScreen(viewModel: SessionViewModel, activity: Activity, onPreflight: () -> Unit) {
     val granted by viewModel.cameraGranted.collectAsState()
     val failure by viewModel.failure.collectAsState()
     var url by remember { mutableStateOf(viewModel.serverUrl) }
@@ -77,6 +81,7 @@ fun RegistrationScreen(viewModel: SessionViewModel, activity: Activity) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = { viewModel.register(activity) }) { Text("Register") }
             OutlinedButton(onClick = { viewModel.refreshPermission() }) { Text("Check camera") }
+            OutlinedButton(onClick = onPreflight) { Text("Check setup") }
         }
         failure?.let {
             Text(it.detail, color = MaterialTheme.colorScheme.error)
@@ -87,7 +92,7 @@ fun RegistrationScreen(viewModel: SessionViewModel, activity: Activity) {
 }
 
 @Composable
-fun CameraScreen(viewModel: SessionViewModel) {
+fun CameraScreen(viewModel: SessionViewModel, onPreflight: () -> Unit) {
     val sessionState by viewModel.sessionState.collectAsState()
     val streaming by viewModel.streaming.collectAsState()
     val preview by viewModel.preview.collectAsState()
@@ -134,6 +139,7 @@ fun CameraScreen(viewModel: SessionViewModel) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = { viewModel.start() }, enabled = !streaming) { Text("Start") }
             OutlinedButton(onClick = { viewModel.stop() }, enabled = streaming) { Text("Stop") }
+            OutlinedButton(onClick = onPreflight, enabled = !streaming) { Text("Check setup") }
         }
         failure?.let {
             Text(it.detail, color = MaterialTheme.colorScheme.error)
@@ -192,6 +198,50 @@ fun VerdictList(verdicts: List<LiveVerdict>) {
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+/** Demo-day setup check: one pass/fail row per item, with fix hints. */
+@Composable
+fun PreflightScreen(viewModel: SessionViewModel, onBack: () -> Unit) {
+    val report by viewModel.preflight.collectAsState()
+    val running by viewModel.preflightRunning.collectAsState()
+    LaunchedEffect(Unit) {
+        viewModel.runPreflight()
+    }
+    Column(
+        modifier = Modifier.fillMaxSize().padding(20.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Text("Check setup", style = MaterialTheme.typography.headlineMedium)
+        if (running && report == null) {
+            Text("Checking...", style = MaterialTheme.typography.bodyMedium)
+        }
+        report?.let {
+            Text(
+                if (it.allPass) "All checks pass." else "Fix the failures, then re-check.",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            it.items.forEach { item ->
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text(
+                            "${if (item.pass) "PASS" else "FAIL"}: ${item.label}",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = if (item.pass) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.error,
+                        )
+                        Text(item.hint, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = onBack) { Text("Back") }
+            Button(onClick = { viewModel.runPreflight() }, enabled = !running) {
+                Text(if (running) "Checking..." else "Re-check")
             }
         }
     }

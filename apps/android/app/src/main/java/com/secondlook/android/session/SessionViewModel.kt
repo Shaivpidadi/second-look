@@ -4,6 +4,8 @@ import android.Manifest
 import android.app.Application
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.media.AudioDeviceInfo
+import android.media.AudioManager
 import android.util.Log
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
@@ -136,6 +138,12 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
     private val speakDebounce = SpeakDebounce()
     private val sessionMemory = SessionMemory()
     private val seenVerdictIds = SeenIds()
+
+    private val _preflight = MutableStateFlow<PreflightReport?>(null)
+    val preflight: StateFlow<PreflightReport?> = _preflight.asStateFlow()
+
+    private val _preflightRunning = MutableStateFlow(false)
+    val preflightRunning: StateFlow<Boolean> = _preflightRunning.asStateFlow()
 
     private var session: DeviceSession? = null
     private var camera: Camera? = null
@@ -270,6 +278,81 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
 
     fun clearFailure() {
         _failure.value = null
+    }
+
+    /** Run the Check-setup probes; never throws, failures are rows. */
+    fun runPreflight() {
+        if (_preflightRunning.value) return
+        viewModelScope.launch {
+            _preflightRunning.value = true
+            try {
+                _preflight.value = checkSetup()
+            } finally {
+                _preflightRunning.value = false
+            }
+        }
+    }
+
+    private suspend fun checkSetup(): PreflightReport {
+        val items = mutableListOf<PreflightItem>()
+        val health = try {
+            val probed = SecondLookApi(serverUrl).fetchHealth()
+            items += PreflightItem("Server reachable", true, serverUrl)
+            probed
+        } catch (e: Exception) {
+            items += PreflightItem(
+                "Server reachable",
+                false,
+                "Start it with pnpm demo:lan, then set the Server URL. (${shortCause(e)})",
+            )
+            null
+        }
+        if (health == null) {
+            items += PreflightItem("Server healthy", false, "No response to assess.")
+            items += PreflightItem("API key present", false, "No response to assess.")
+        } else {
+            items += PreflightItem(
+                "Server healthy",
+                health.ok,
+                if (health.ok) "Mode: ${health.mode}." else "Server answered but unhealthy.",
+            )
+            items += PreflightItem(
+                "API key present",
+                health.keyPresent,
+                if (health.keyPresent) "Live models armed."
+                else "Set MODEL_API_KEY in .env and restart the server.",
+            )
+        }
+        val linked = _isRegistered.value && _cameraGranted.value == true
+        items += PreflightItem(
+            "Glasses link",
+            linked,
+            if (linked) "Registered with camera access."
+            else "Register the glasses and grant camera first.",
+        )
+        val audio = try {
+            val manager = getApplication<Application>().getSystemService(AudioManager::class.java)
+            manager.getDevices(AudioManager.GET_DEVICES_OUTPUTS).any {
+                it.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP
+            }
+        } catch (_: Exception) {
+            null
+        }
+        items += PreflightItem(
+            "Audio route",
+            audio == true,
+            when (audio) {
+                true -> "Glasses audio connected; speech will play there."
+                false -> "No Bluetooth audio device. Connect the glasses audio."
+                null -> "Could not query audio devices."
+            },
+        )
+        return PreflightReport(items, Instant.now().toString())
+    }
+
+    private fun shortCause(e: Exception): String {
+        val message = "${e.javaClass.simpleName}: ${e.message ?: "no detail"}"
+        return if (message.length <= 80) message else message.take(77) + "..."
     }
 
     private suspend fun startGlasses(api: SecondLookApi): Boolean {

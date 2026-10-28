@@ -26,6 +26,35 @@ class SecondLookApi(
 
     fun verdictsUrl(sessionId: String): String = "$baseUrl/api/verdicts?sessionId=$sessionId"
 
+    fun healthUrl(): String = "$baseUrl/api/health"
+
+    /**
+     * GET the preflight probe with short timeouts so setup checks fail
+     * fast. Throws [ApiException] on transport, non-2xx, or bad bodies.
+     */
+    suspend fun fetchHealth(): ApiHealth = withContext(Dispatchers.IO) {
+        val connection = URL(healthUrl()).openConnection() as HttpURLConnection
+        try {
+            connection.requestMethod = "GET"
+            connection.connectTimeout = 5_000
+            connection.readTimeout = 5_000
+            val status = connection.responseCode
+            if (status !in 200..299) {
+                throw ApiException("GET /api/health failed with status $status")
+            }
+            val text = connection.inputStream.use { String(it.readBytes(), StandardCharsets.UTF_8) }
+            val payload = try {
+                parseJson(text) as? Map<String, Any?>
+            } catch (_: Exception) {
+                null
+            }
+            payload?.let { parseApiHealth(it) }
+                ?: throw ApiException("bad health response from ${healthUrl()}")
+        } finally {
+            connection.disconnect()
+        }
+    }
+
     /**
      * POST one frame event and parse its verdicts. Throws [ApiException]
      * on transport, non-2xx status, or an unparsable response body.
