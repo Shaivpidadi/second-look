@@ -5,11 +5,11 @@ import { publishLiveVerdict } from "../../../lib/verdict-bus";
 
 /**
  * Node runtime (the frame path uses Buffer and node:crypto) with headroom
- * for a max-size frame POST; the POST itself answers in well under a
- * second and judging runs off-path. Note the verdict bus is in-memory,
- * so live verdicts need a single-node server (Mac Studio LAN); on
- * multi-instance Vercel the POST validates but verdicts would not fan
- * out without an external bus.
+ * for a max-size frame POST; frame POSTs await their own verdicts
+ * (typically a few seconds) so the app works even when SSE lands on
+ * another instance. Note the verdict bus is still in-memory, so the SSE
+ * stream is best-effort cross-instance; the POST response is the
+ * reliable channel and clients dedupe by verdict id.
  */
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -19,6 +19,8 @@ export interface FormEvent {
   fieldId: string;
   value: string;
   ts: string;
+  /** Frame-only: client-sent session memory (extracted fields). */
+  memory?: unknown;
 }
 
 const store = new Map<string, FormEvent[]>();
@@ -53,6 +55,7 @@ export async function POST(request: Request) {
       sessionId: event.sessionId,
       value: event.value,
       typedValues: valuesBySession.get(event.sessionId) ?? {},
+      memory: event.memory,
     });
     if (posted.outcome === "rejected") {
       return NextResponse.json({ ok: false, error: posted.error }, { status: 400 });
@@ -60,11 +63,29 @@ export async function POST(request: Request) {
     if (posted.outcome === "undecodable") {
       return NextResponse.json({ ok: false, error: "bad_frame_image" }, { status: 422 });
     }
-    if (posted.outcome === "duplicate" || posted.outcome === "throttled") {
-      return NextResponse.json({ ok: true, frame: posted.outcome });
+    if (posted.outcome === "duplicate") {
+      return NextResponse.json({ ok: true, frame: "duplicate", verdicts: [] });
     }
-    void posted.done;
-    return NextResponse.json({ ok: true, frame: "accepted" });
+    if (posted.outcome === "throttled") {
+      return NextResponse.json({ ok: true, frame: "throttled", verdicts: [posted.verdict] });
+    }
+    // The POST awaits its own verdicts so the app works when SSE lands
+    // on another instance; typically a few seconds, capped at 60s above.
+    const completed = await posted.done;
+    if (completed === null) {
+      return NextResponse.json({ ok: false, error: "frame_judge_failed" }, { status: 502 });
+    }
+    const verdicts = completed.crossDocVerdict
+      ? [completed.frameVerdict, completed.crossDocVerdict]
+      : [completed.frameVerdict];
+    return NextResponse.json({
+      ok: true,
+      frame: "judged",
+      verdicts,
+      document: completed.result.document ?? null,
+      readings: completed.result.readings ?? {},
+      memoryAccepted: completed.memoryAccepted,
+    });
   }
 
   const list = store.get(event.sessionId) ?? [];

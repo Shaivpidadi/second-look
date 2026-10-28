@@ -15,7 +15,7 @@ import {
   type SamCropOutput,
 } from "@second-look/pipeline";
 import type { LiveVerdictFailure } from "./live-verdict.ts";
-import { publishLiveVerdict } from "./verdict-bus.ts";
+import { publishLiveVerdict, type PublishedVerdict } from "./verdict-bus.ts";
 
 /**
  * Live-glasses frame path. The Android app posts JPEG frames as data URLs
@@ -92,6 +92,12 @@ export const MAX_DOC_FIELDS = 40;
 
 /** Sessions idle this long lose their frame memory (docs, dedupe, budget). */
 export const SESSION_IDLE_MS = 30 * 60_000;
+
+/** Max JSON bytes of client-sent session memory per frame POST. */
+export const MAX_MEMORY_BYTES = 8192;
+
+/** Max length of one client-sent field value. */
+export const MAX_MEMORY_VALUE = 512;
 
 export type FrameRejectError = "bad_frame_mime" | "bad_frame_base64" | "frame_too_large";
 
@@ -227,19 +233,22 @@ export function storeFrameDocument(
  * Run the cross-document validator over everything the session has
  * seen. Publishes a conflict verdict when pairs disagree, a clean one
  * when a past conflict resolves, and nothing otherwise. Pure lookup
- * plus publish; costs no model calls.
+ * plus publish; costs no model calls. Returns what it published.
  */
-export function runSessionCrossDoc(sessionId: string, state: SessionFrameState): void {
-  if (state.documents.size < 2) return;
+export function runSessionCrossDoc(
+  sessionId: string,
+  state: SessionFrameState,
+): PublishedVerdict | null {
+  if (state.documents.size < 2) return null;
   const merged: Record<string, string> = {};
   for (const doc of state.documents.values()) Object.assign(merged, doc.fields);
   const failures = checkCrossDoc(merged, { skipMissingInputs: true }).filter((c) => !c.passed);
   const key = failures.length === 0 ? "clean" : failures.map((f) => f.fieldId).join(",");
   if (failures.length === 0 && (state.lastCrossDocKey === null || state.lastCrossDocKey === "clean")) {
-    return;
+    return null;
   }
   state.lastCrossDocKey = key;
-  publishLiveVerdict(sessionId, {
+  return publishLiveVerdict(sessionId, {
     fieldId: FRAME_CROSSDOC_FIELD_ID,
     decision: "ALLOW",
     state: failures.length === 0 ? "clean" : "mismatch",
@@ -250,6 +259,68 @@ export function runSessionCrossDoc(sessionId: string, state: SessionFrameState):
     })),
     ts: new Date().toISOString(),
   });
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+/**
+ * Validate client-sent session memory: `{ docType: { field: value } }`,
+ * extracted fields only, size-capped. Absent memory is valid and empty;
+ * anything malformed is rejected (the frame still judges, cross-doc
+ * may miss, and the response says memoryAccepted: false).
+ */
+export function parseClientMemory(
+  value: unknown,
+): { docs: Record<string, Record<string, string>> } | { error: "bad_frame_memory" } {
+  if (value === undefined) return { docs: {} };
+  let size = 0;
+  try {
+    size = JSON.stringify(value)?.length ?? 0;
+  } catch {
+    return { error: "bad_frame_memory" };
+  }
+  if (size === 0 || size > MAX_MEMORY_BYTES) return { error: "bad_frame_memory" };
+  if (!isRecord(value)) return { error: "bad_frame_memory" };
+  const entries = Object.entries(value);
+  if (entries.length > MAX_SESSION_DOCS) return { error: "bad_frame_memory" };
+  const docs: Record<string, Record<string, string>> = {};
+  for (const [type, fields] of entries) {
+    if (!DOC_TYPE_PATTERN.test(type) || !isRecord(fields)) return { error: "bad_frame_memory" };
+    const fieldEntries = Object.entries(fields);
+    if (fieldEntries.length > MAX_DOC_FIELDS) return { error: "bad_frame_memory" };
+    docs[type] = {};
+    for (const [fieldId, fieldValue] of fieldEntries) {
+      if (
+        typeof fieldId !== "string" ||
+        fieldId.length === 0 ||
+        fieldId.length > 64 ||
+        typeof fieldValue !== "string" ||
+        fieldValue.length === 0 ||
+        fieldValue.length > MAX_MEMORY_VALUE
+      ) {
+        return { error: "bad_frame_memory" };
+      }
+      docs[type]![fieldId] = fieldValue;
+    }
+  }
+  return { docs };
+}
+
+/**
+ * Merge client memory into session state, filling only doc types the
+ * instance has not seen itself (in-process memory is fresher).
+ */
+export function mergeClientMemory(
+  state: SessionFrameState,
+  docs: Record<string, Record<string, string>>,
+  nowMs: number,
+): void {
+  for (const [type, fields] of Object.entries(docs)) {
+    if (state.documents.has(type)) continue;
+    storeFrameDocument(state, type, fields, "", nowMs);
+  }
 }
 
 /** Test-only reset for the in-memory frame state. */
@@ -419,17 +490,27 @@ export interface FramePostInput {
   /** Raw `frame.pov` event value: a JPEG or PNG data URL. */
   value: string;
   typedValues: Record<string, string>;
+  /** Client-sent session memory (extracted fields, no image bytes). */
+  memory?: unknown;
   adapters?: PipelineAdapters;
   nowMs?: number;
   onError?: (message: string, error: unknown) => void;
+}
+
+/** Everything one judged frame produced, for the POST response. */
+export interface FramePostCompleted {
+  result: FrameCheckResult;
+  frameVerdict: PublishedVerdict;
+  crossDocVerdict: PublishedVerdict | null;
+  memoryAccepted: boolean;
 }
 
 export type FramePostOutcome =
   | { outcome: "rejected"; error: FrameRejectError }
   | { outcome: "undecodable" }
   | { outcome: "duplicate" }
-  | { outcome: "throttled" }
-  | { outcome: "accepted"; done: Promise<FrameCheckResult | null>; decodeMs: number };
+  | { outcome: "throttled"; verdict: PublishedVerdict }
+  | { outcome: "accepted"; done: Promise<FramePostCompleted | null>; decodeMs: number };
 
 /**
  * Handle one posted frame through validation, decode, dedupe, throttle,
@@ -463,19 +544,24 @@ export function handleFramePost(input: FramePostInput): FramePostOutcome {
   }
   state.lastKey = key;
   const hash = frameHash(gray);
+  // Client memory fills gaps first, so a fresh instance still runs
+  // cross-doc checks; in-process memory wins on conflicts.
+  const memory = parseClientMemory(input.memory);
+  const memoryAccepted = !("error" in memory);
+  if (!("error" in memory)) mergeClientMemory(state, memory.docs, nowMs);
   // Re-shown documents skip the localizer: boxes are audit provenance,
   // and this exact frame was already localized once.
   const skipBoxes = [...state.documents.values()].some((doc) => doc.hash === hash);
   const calls = skipBoxes ? 1 : FRAME_MODEL_CALLS_PER_CHECK;
   if (!tryReserveFrameCalls(state, calls, nowMs)) {
-    publishLiveVerdict(input.sessionId, {
+    const verdict = publishLiveVerdict(input.sessionId, {
       fieldId: FRAME_FIELD_ID,
       decision: "ALLOW",
       state: "throttled",
       failures: [],
       ts: new Date().toISOString(),
     });
-    return { outcome: "throttled" };
+    return { outcome: "throttled", verdict };
   }
   // The model sees a downscaled gray JPEG: fewer image tokens, same
   // verdicts (see STATUS.md). Dedupe and memory hash full pixels.
@@ -491,7 +577,7 @@ export function handleFramePost(input: FramePostInput): FramePostOutcome {
   const adapters = input.adapters ?? createPipelineAdapters();
   const typedValues = { ...input.typedValues };
   const onError = input.onError ?? console.error;
-  const done = runFrameCheck({
+  const done: Promise<FramePostCompleted | null> = runFrameCheck({
     image: modelImage,
     frameWidth: modelWidth,
     frameHeight: modelHeight,
@@ -502,17 +588,18 @@ export function handleFramePost(input: FramePostInput): FramePostOutcome {
   }).then(
     (result) => {
       state.lastJudgeMs = nowMs;
-      publishLiveVerdict(input.sessionId, {
+      const frameVerdict = publishLiveVerdict(input.sessionId, {
         fieldId: FRAME_FIELD_ID,
         decision: result.decision,
         state: result.state,
         failures: result.failures,
         ts: new Date().toISOString(),
       });
+      let crossDocVerdict: PublishedVerdict | null = null;
       if (storeFrameDocument(state, result.document, result.readings, hash, nowMs)) {
-        runSessionCrossDoc(input.sessionId, state);
+        crossDocVerdict = runSessionCrossDoc(input.sessionId, state);
       }
-      return result;
+      return { result, frameVerdict, crossDocVerdict, memoryAccepted };
     },
     (error: unknown) => {
       onError(`frame check failed (hash ${hash})`, error);

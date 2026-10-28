@@ -23,7 +23,10 @@ import {
   isNearDuplicate,
   MAX_DOC_FIELDS,
   MAX_FRAME_MODEL_CALLS_PER_MIN,
+  MAX_MEMORY_VALUE,
   MAX_SESSION_DOCS,
+  mergeClientMemory,
+  parseClientMemory,
   parseFrameDataUrl,
   pruneFrameSessions,
   REJUDGE_AFTER_MS,
@@ -31,7 +34,7 @@ import {
   SESSION_IDLE_MS,
   storeFrameDocument,
   tryReserveFrameCalls,
-  type FrameCheckResult,
+  type FramePostCompleted,
   type FrameDedupeKey,
   type SessionFrameState,
 } from "./frame-path.ts";
@@ -122,7 +125,7 @@ async function postFrame(
   index: number,
   spark: SparkAdapter,
   nowMs?: number,
-): Promise<FrameCheckResult | null> {
+): Promise<FramePostCompleted | null> {
   const frame = stripeFrame(index);
   const posted = handleFramePost({
     sessionId,
@@ -306,7 +309,7 @@ test("frame: post accepts, then drops the duplicate, publishing once", async () 
   assert.equal(first.outcome, "accepted");
   if (first.outcome !== "accepted") throw new Error("unreachable");
   const judged = await first.done;
-  assert.equal(judged?.state, "clean");
+  assert.equal(judged?.result.state, "clean");
   const second = handleFramePost({
     sessionId,
     value,
@@ -561,8 +564,8 @@ test("frame: re-shown documents skip the localizer and reserve one call", async 
   });
   assert.equal(third.outcome, "accepted");
   if (third.outcome !== "accepted") throw new Error("unreachable");
-  const result = await third.done;
-  assert.equal(result?.boxesSkipped, true);
+  const completed = await third.done;
+  assert.equal(completed?.result.boxesSkipped, true);
   assert.equal(frameStateFor(sessionId).callTimestamps.length, 5);
 });
 
@@ -612,6 +615,106 @@ test("frame: judge failure resolves null and reports", async () => {
   assert.ok(errors[0]?.[0].startsWith("frame check failed"));
 });
 
+test("frame: completion carries the published verdicts with ids", async () => {
+  __resetFramePath();
+  __resetLiveVerdictBus();
+  const sessionId = "frame-completion";
+  const seen: PublishedVerdict[] = [];
+  subscribeLiveVerdicts(sessionId, (verdict) => seen.push(verdict));
+  const spark = judgingSparkSequence([
+    { judgment: { flagged: false, failures: [] }, document: "bol", paperReadings: { "bol.weightKg": "1000" } },
+    { judgment: { flagged: false, failures: [] }, document: "awb", paperReadings: { "awb.weightKg": "2000" } },
+  ]);
+  const first = await postFrame(sessionId, 0, spark);
+  assert.equal(first?.crossDocVerdict, null);
+  assert.ok(first?.frameVerdict.id);
+  const second = await postFrame(sessionId, 1, spark);
+  assert.ok(second?.crossDocVerdict);
+  assert.equal(second?.crossDocVerdict?.fieldId, FRAME_CROSSDOC_FIELD_ID);
+  const busFrame = seen.filter((v) => v.fieldId === FRAME_FIELD_ID);
+  const busCross = seen.filter((v) => v.fieldId === FRAME_CROSSDOC_FIELD_ID);
+  assert.equal(busFrame[1]?.id, second?.frameVerdict.id);
+  assert.equal(busCross[0]?.id, second?.crossDocVerdict?.id);
+  assert.notEqual(busFrame[0]?.id, busFrame[1]?.id);
+  assert.equal(second?.memoryAccepted, true);
+});
+
+test("frame: client memory lets a fresh instance run cross-doc", async () => {
+  __resetFramePath();
+  __resetLiveVerdictBus();
+  const sessionId = "frame-clientmem";
+  const spark = judgingSpark({
+    judgment: { flagged: false, failures: [] },
+    document: "awb",
+    paperReadings: { "awb.weightKg": "2000" },
+  });
+  const frame = stripeFrame(0);
+  const posted = handleFramePost({
+    sessionId,
+    value: jpegDataUrl(frame.gray, frame.width, frame.height),
+    typedValues: {},
+    memory: { bol: { "bol.weightKg": "1000" } },
+    adapters: { ...stubAdapters(), spark },
+  });
+  assert.equal(posted.outcome, "accepted");
+  if (posted.outcome !== "accepted") throw new Error("unreachable");
+  const completed = await posted.done;
+  assert.equal(completed?.memoryAccepted, true);
+  assert.ok(completed?.crossDocVerdict);
+  assert.equal(
+    completed?.crossDocVerdict?.failures[0]?.message,
+    "BOL weight 1000kg vs AWB weight 2000kg (tolerance 0kg)",
+  );
+});
+
+test("frame: bad client memory is refused but the frame still judges", async () => {
+  __resetFramePath();
+  __resetLiveVerdictBus();
+  const spark = judgingSpark({ judgment: { flagged: false, failures: [] } });
+  const frame = stripeFrame(2);
+  const posted = handleFramePost({
+    sessionId: "frame-badmem",
+    value: jpegDataUrl(frame.gray, frame.width, frame.height),
+    typedValues: {},
+    memory: { bol: "not-an-object" },
+    adapters: { ...stubAdapters(), spark },
+  });
+  assert.equal(posted.outcome, "accepted");
+  if (posted.outcome !== "accepted") throw new Error("unreachable");
+  const completed = await posted.done;
+  assert.equal(completed?.memoryAccepted, false);
+  assert.equal(completed?.result.state, "clean");
+});
+
+test("frame: client memory validation caps shape and size", () => {
+  assert.deepEqual(parseClientMemory(undefined), { docs: {} });
+  assert.deepEqual(parseClientMemory({}), { docs: {} });
+  assert.deepEqual(parseClientMemory({ bol: { "bol.weightKg": "1" } }), {
+    docs: { bol: { "bol.weightKg": "1" } },
+  });
+  for (const bad of [null, [], "x", 7, { bol: null }, { bol: { v: 7 } }, { bol: { v: "" } }, { "BOL!!!": {} }]) {
+    assert.deepEqual(parseClientMemory(bad), { error: "bad_frame_memory" });
+  }
+  assert.deepEqual(parseClientMemory({ bol: { v: "x".repeat(MAX_MEMORY_VALUE + 1) } }), {
+    error: "bad_frame_memory",
+  });
+  assert.deepEqual(parseClientMemory({ bol: { v: "x".repeat(9000) } }), { error: "bad_frame_memory" });
+  const manyDocs: Record<string, Record<string, string>> = {};
+  for (let i = 0; i < MAX_SESSION_DOCS + 1; i++) manyDocs[`d${i}`] = { a: "b" };
+  assert.deepEqual(parseClientMemory(manyDocs), { error: "bad_frame_memory" });
+  const manyFields: Record<string, string> = {};
+  for (let i = 0; i < MAX_DOC_FIELDS + 1; i++) manyFields[`f${i}`] = "b";
+  assert.deepEqual(parseClientMemory({ bol: manyFields }), { error: "bad_frame_memory" });
+});
+
+test("frame: client memory fills only unseen doc types", () => {
+  const state = freshState();
+  assert.equal(storeFrameDocument(state, "bol", { "bol.weightKg": "1000" }, "h", 0), true);
+  mergeClientMemory(state, { bol: { "bol.weightKg": "9999" }, awb: { "awb.weightKg": "5" } }, 1);
+  assert.deepEqual(state.documents.get("bol")?.fields, { "bol.weightKg": "1000" });
+  assert.deepEqual(state.documents.get("awb")?.fields, { "awb.weightKg": "5" });
+});
+
 test("frame: over-budget frames publish a visible throttled verdict", async () => {
   __resetFramePath();
   __resetLiveVerdictBus();
@@ -641,6 +744,10 @@ test("frame: over-budget frames publish a visible throttled verdict", async () =
     nowMs: 0,
   });
   assert.equal(throttled.outcome, "throttled");
+  if (throttled.outcome === "throttled") {
+    assert.equal(throttled.verdict.state, "throttled");
+    assert.ok(throttled.verdict.id);
+  }
   await Promise.all(pending);
   const states = seen.map((verdict) => verdict.state);
   assert.ok(states.includes("throttled"), `expected a throttled verdict, saw ${states}`);

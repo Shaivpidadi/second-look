@@ -1,6 +1,12 @@
+import { randomBytes } from "node:crypto";
 import type { LiveVerdictFailure } from "./live-verdict.ts";
 
 export interface PublishedVerdict {
+  /**
+   * Unique id per published verdict. POST responses and SSE carry the
+   * same objects, so clients dedupe on this when both channels deliver.
+   */
+  id: string;
   seq: number;
   sessionId: string;
   fieldId: string;
@@ -34,11 +40,16 @@ function busFor(sessionId: string): SessionBus {
  */
 export function publishLiveVerdict(
   sessionId: string,
-  verdict: Omit<PublishedVerdict, "seq" | "sessionId">,
+  verdict: Omit<PublishedVerdict, "id" | "seq" | "sessionId">,
 ): PublishedVerdict {
   const bus = busFor(sessionId);
   bus.seq += 1;
-  const published: PublishedVerdict = { ...verdict, seq: bus.seq, sessionId };
+  const published: PublishedVerdict = {
+    ...verdict,
+    id: randomBytes(6).toString("hex"),
+    seq: bus.seq,
+    sessionId,
+  };
   for (const listener of bus.listeners) listener(published);
   return published;
 }
