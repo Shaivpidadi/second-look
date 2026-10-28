@@ -655,7 +655,7 @@ export default function Dashboard() {
                     <CardHeader>
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <CardTitle>Eval report</CardTitle>
-                        <Badge tone="pass">Measured Oct 27 · 100 std + 40 hard</Badge>
+                        <Badge tone="pass">Measured Oct 27-28 · 100 std + 40 hard</Badge>
                       </div>
                     </CardHeader>
                     <CardContent className="!px-2 !pt-0">

@@ -31,7 +31,7 @@ const NUMBERS = [
   { label: "Tiered recall · 100 forms", value: "98.8%", note: "precision 100.0%" },
   { label: "Vision recall · 40 hard", value: "100%", note: "$0.015 / form" },
   { label: "Validators alone · hard", value: "39.4%", note: "why tiers exist" },
-  { label: "First verdict p50 · qty-gap", value: "3.2s", note: "fast path, live" },
+  { label: "E2E total · qty-gap", value: "4.9s", note: "live, under 5s" },
   { label: "Text cost / form", value: "$0.003", note: "tiered, priced" },
 ];
 
@@ -131,10 +131,10 @@ export default function Home() {
             <div>
               <h2 className="text-3xl font-semibold tracking-[-0.02em]">Measured, not promised.</h2>
               <p className="mt-2 text-[15px] text-ink-dim">
-                Eval corpus: 100 standard + 40 hard forms. Clip runs: n=3, live Muse Spark.
+                Eval corpus: 100 standard + 40 hard forms. Clip path: end-to-end totals under 5s, live Muse Spark.
               </p>
             </div>
-            <Badge tone="pass">Oct 27 run</Badge>
+            <Badge tone="pass">Oct 27-28 runs</Badge>
           </div>
           <dl className="mt-10 grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-line bg-line md:grid-cols-5">
             {NUMBERS.map((stat) => (
