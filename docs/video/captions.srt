@@ -56,55 +56,68 @@ Warn on the cross-doc gap,
 escalated to Spark.
 
 13
-00:01:39,000 --> 00:01:47,000
-Every decision lands here with its reasoning,
-its latency and cost, and an append-only audit trail.
+00:01:39,000 --> 00:01:43,000
+Every decision lands here with
+its reasoning, its latency and cost,
 
 14
+00:01:43,500 --> 00:01:47,000
+and an append-only audit trail.
+
+15
 00:02:01,000 --> 00:02:06,000
 The POD note reads 2 cartons damaged.
 A claim draft follows:
 
-15
+16
 00:02:06,500 --> 00:02:12,000
 carrier plus BOL reference, 2 damaged,
 amount left for the adjuster.
 
-16
-00:02:15,000 --> 00:02:20,000
-Check digits alone collapse on the hard split.
-The tiered pipeline holds 98.8 to 100% recall
-
 17
-00:02:20,500 --> 00:02:27,000
-at about a third of a cent per form for text,
-a cent and a half with full vision.
+00:02:15,000 --> 00:02:19,500
+Check digits alone collapse
+on the hard split.
 
 18
-00:02:27,500 --> 00:02:31,500
+00:02:20,000 --> 00:02:23,500
+The tiered pipeline
+holds 98.8 to 100% recall
+
+19
+00:02:24,000 --> 00:02:27,000
+at about a third of a cent
+per form for text,
+
+20
+00:02:27,500 --> 00:02:30,000
+a cent and a half with full vision.
+
+21
+00:02:30,500 --> 00:02:34,000
 The vision arm reads paper straight
 from degraded pixels, including five
 
-19
-00:02:32,000 --> 00:02:35,500
+22
+00:02:34,500 --> 00:02:37,000
 validator-blind near-miss forms,
 
-20
-00:02:36,000 --> 00:02:43,000
+23
+00:02:37,500 --> 00:02:43,000
 and abstains to needs-human
 when it cannot read a field.
 
-21
+24
 00:02:47,000 --> 00:02:51,000
 Validators first, always free.
 A local pass over crops.
 
-22
+25
 00:02:51,500 --> 00:02:55,500
 Cloud only on disagreement,
 one Spark call per verdict.
 
-23
+26
 00:02:56,000 --> 00:02:59,500
 What ships next: on-glasses recording
 and local Glimmer weights.
