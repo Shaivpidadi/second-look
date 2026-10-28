@@ -1,8 +1,8 @@
 # Demo script (3 minutes) + backup clip shot list
 
 All numbers below are measured, not targets. Sources: STATUS.md
-batches 6-8. Clips labelled synthetic are generator renders;
-recorded footage is a human task (see shot list).
+and the README eval table. Clips labelled synthetic are generator
+renders; recorded footage is a human task (see shot list).
 
 ## One-command backup replay
 
@@ -11,7 +11,7 @@ pnpm --filter @second-look/eval clips:demo [-- --models real --pace 600]
 ```
 
 Stub mode is offline and deterministic (exit 1 on verdict mismatch).
-`--models real` needs `.env` and spends ~10 calls (~$0.03) per replay.
+`--models real` needs `.env` and spends 4 calls (~$0.02) per replay.
 `--pace` sets ms between narrated beats for screen recording.
 
 ## The /demo record screen
@@ -69,7 +69,7 @@ Say: "A local verdict streams in about two hundred milliseconds.
 One image-grounded Spark call refines it. Verdict: blocked, AWB
 check digit invalid, fix proposes the paper value."
 Overlay: "blocked in 3.4s end to end (measured live); fix correct
-in 10 of 12 live runs; the verdict itself is deterministic."
+in 11 of 13 live runs; the verdict itself is deterministic."
 Say: "Validators block instantly and for free. The model gets one
 call to explain and propose the fix."
 
@@ -120,15 +120,17 @@ reads paper straight from degraded pixels, including five
 validator-blind near-miss forms, and abstains to needs-human when
 it cannot read a field."
 
-Note: abstention is wired and tested; live runs so far report 0
-abstentions (the model reads through even 3x-stacked blur rather
-than abstaining). Do not claim abstentions were observed.
+Note: abstention is wired and tested, including a same-call
+confidence gate (`low_confidence` list); live runs so far report 0
+abstentions on all 40 hard forms (the model reads through even
+3x-stacked blur rather than abstaining). Do not claim abstentions
+were observed.
 
 ### Shot 8, 2:25 to 2:30: close
 
 Screen: landing hero with the measured strip.
 Say: "Validators first, always free. A local pass over crops. Cloud
-only on disagreement, one call per verdict. What ships next:
+only on disagreement, one Spark call per verdict. What ships next:
 on-glasses recording and local Glimmer weights."
 
 ## Shot list for human-recorded backup clips
