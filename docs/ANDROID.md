@@ -104,19 +104,22 @@ pairs virtual Ray-Ban Meta glasses, so the flow can be exercised without hardwar
 
 ## Limits and next steps
 
-- Single-frame verdicts cover visible fields only; a BOL frame cannot catch an
-  AWB error in another document. Cross-frame paper-value accumulation is future
-  work.
+- Single-frame verdicts cover the visible document only; cross-document
+  checks run over session memory, which the app also sends as a compact
+  field summary so they survive a multi-instance host.
 - Real-device pairing, video recording, and entry filing still need a human
   with hardware. See STATUS.md.
 
 ## What Shaishav must do by hand
 
-1. Install the debug APK on his Android phone via adb or Android Studio.
-2. Enable glasses camera access in the Meta AI app.
-3. Start the Mac server bound to 0.0.0.0 and note the Mac LAN IP.
-4. Set the base URL field in the app to `http://<mac-ip>:3100`.
-5. Run the first real pairing test: register, grant camera, Start on glasses,
+1. On the Mac, run `pnpm demo:lan`, then `pnpm demo:preflight` to confirm
+   the server, the API key, and the printed LAN URL.
+2. Install the debug APK on his Android phone via adb or Android Studio.
+3. Enable glasses camera access in the Meta AI app.
+4. Set the base URL field in the app to the printed LAN URL.
+5. Open Check setup in the app and confirm every row passes (server,
+   key, glasses link, audio route); fix failures before continuing.
+6. Run the first real pairing test: register, grant camera, Start on glasses,
    confirm frames post and verdicts stream (fall back to the phone source and
    the chroma toggle if pairing or colors misbehave). Confirm spoken verdicts
    play through the glasses; toggle Speech and Clean tone to taste.

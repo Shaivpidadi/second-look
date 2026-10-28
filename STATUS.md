@@ -1,4 +1,40 @@
-# Status: Batch 19 done - cross-doc memory, faster frames, speech (Oct 28)
+# Status: Batch 20 done - demo-day robustness for the glasses path (Oct 28)
+
+## Batch 20 done
+
+Deadline is now "Nov 4, 9pm ET (event page)" everywhere with an
+internal "finish by Nov 3, 9pm ET" buffer; `check:submit` fails on
+any other deadline wording.
+
+Frame verdicts no longer need SSE: the POST response carries every
+verdict that frame produced (single-doc plus any cross-doc), with
+stable verdict ids, so the app works on a multi-instance host. The
+app renders and speaks from POST and treats SSE as a backup,
+deduping by id. Session memory crosses instances through a
+client-sent summary (extracted fields only, no image bytes, 8 KB
+cap, 6 docs and 40 fields max); in-process memory wins conflicts
+and bad memory still judges with `memoryAccepted: false`.
+
+- Failure states in the app: not registered, permission denied,
+  unreachable/timeout/5xx (spoken, auto-retry with backoff), 4xx
+  (silent, no retry), blur or no document (ask the wearer to hold
+  still). Nothing crashes. State machine unit-tested in :core.
+- Check setup screen: per-item pass/fail for server reachability,
+  server health, API key presence (present or missing, never the
+  value), glasses link, and audio route. Matching
+  `pnpm demo:preflight` prints the same server items plus the LAN
+  URL; `pnpm demo:lan` starts the server on 0.0.0.0 and prints it.
+- Two-instance proof, 4 calls: BOL judged on instance A (3.2s,
+  clean), memory dropped, then the conflicting AWB judged on
+  instance B (3.5s) with only the 232-byte client summary; the
+  cross-doc verdict still arrived in B's POST response ("BOL
+  weight 2064kg vs AWB weight 3887kg"). Vercel note updated:
+  POST is the reliable channel, SSE is best-effort backup.
+
+Batch spend: 4 model API calls (two-instance proof only).
+`pnpm test`: 384 pass, 0 fail. `pnpm -r typecheck`: pass.
+`next build`: pass. `pnpm check:submit`: clean. Android:
+`:core:test` 47 pass, debug + release APKs assemble.
 
 ## Batch 19 done
 
@@ -556,9 +592,9 @@ tokens, ~$0.91 total (E2E ~$0.08, vision ~$0.83).
 
 Needs Shaishav (human, finish by Nov 3, 9pm ET):
 
-- Run the Android live smoke: docs/ANDROID.md ends with the 5-step
-  hand checklist (install APK, glasses camera access, Mac server,
-  base URL, first pairing test).
+- Run the Android live smoke: docs/ANDROID.md ends with the 6-step
+  hand checklist (starts with Check setup: Mac server, APK,
+  glasses camera access, base URL, Check setup rows, pairing).
 - Record the backup POV clips + screen segments in docs/DEMO.md
   (glasses developer mode + pairing, or phone POV fallback).
 - Shoot + edit the 3-min video; overlay the measured numbers.
@@ -566,12 +602,11 @@ Needs Shaishav (human, finish by Nov 3, 9pm ET):
 
 Needs no human:
 
-- Reshoot the 16 screenshots (batch 16 screens changed; no
-  new changes in batch 17, so one reshoot covers both).
 - Optional margin work: shorter Spark explanations (per-call
   variance near ±2s is the whole sub-5s budget); Glimmer weights
   runner only if chasing the open-weight bonus past the stub.
 
 Done and out of this list: request timeouts + retry (batch 13),
 vision abstention gate measured (batch 14, judge-always
-documented), sub-5s totals (batches 11/14), demo dry-run (batch 14).
+documented), sub-5s totals (batches 11/14), demo dry-run (batch 14),
+screenshot reshoot (batch 16 screens, one reshoot covered 17).

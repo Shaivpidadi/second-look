@@ -14,6 +14,18 @@ Stub mode is offline and deterministic (exit 1 on verdict mismatch).
 `--models real` needs `.env` and spends 4 calls (~$0.02) per replay.
 `--pace` sets ms between narrated beats for screen recording.
 
+## Live glasses preflight (before any on-camera take)
+
+```sh
+pnpm demo:lan        # start the server on 0.0.0.0, prints the LAN URL
+pnpm demo:preflight # server, key, and LAN URL checks (exit 1 on failure)
+```
+
+Then set the printed URL in the app and open its Check setup screen:
+every row (server, key, glasses link, audio route) must pass before
+recording. Verdicts arrive in the frame POST responses, so a
+multi-instance host is fine; the SSE stream is a backup.
+
 ## The /demo record screen
 
 A 1920x1080 screen-recordable page: glasses POV with animated crop

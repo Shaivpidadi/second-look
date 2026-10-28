@@ -172,6 +172,10 @@ Top 5 risks, each with a ≤30-min spike:
   `:core:test` green, debug + release APKs assemble,
   docs/ANDROID.md written. 0 calls. Screens unchanged: no
   new reshoot.
+- [x] Batch 20 (Oct 28): deadline Nov 4 9pm ET + guard, POST
+  verdicts + client memory, Android failure states, Check setup
+  + demo:preflight/demo:lan, two-instance proof 4 calls, docs.
+  4 calls. Screens unchanged: no new reshoot.
 - [x] Batch 19 (Oct 28): session document memory with
   cross-doc verdicts, frame P50 7.6s to 3.6s (parallel
   boxes/judge, 1400px cap, hash-skip, ink dedupe),
