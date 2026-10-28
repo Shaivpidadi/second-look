@@ -37,7 +37,7 @@ const DOCS: Record<string, { title: string; lines: DocLine[]; crops: Crop[] }> =
       { label: "Pieces", value: "120 CTN" },
     ],
     crops: [
-      { id: "awb", line: 3, label: "crop · awb.awbNumber", value: "87915419121", state: "bad" },
+      { id: "awb", line: 3, label: "crop · AWB number", value: "87915419121", state: "bad" },
     ],
   },
   invoice: {
@@ -50,8 +50,8 @@ const DOCS: Record<string, { title: string; lines: DocLine[]; crops: Crop[] }> =
       { label: "Line 2", value: "Foundation · 165 pcs" },
     ],
     crops: [
-      { id: "inv", line: 1, label: "crop · invoice.totalQty", value: "363", state: "warn" },
-      { id: "pack", line: 2, label: "crop · packing.totalQty", value: "365", state: "warn" },
+      { id: "inv", line: 1, label: "crop · invoice qty", value: "363", state: "warn" },
+      { id: "pack", line: 2, label: "crop · packing qty", value: "365", state: "warn" },
     ],
   },
   pod: {
@@ -63,7 +63,7 @@ const DOCS: Record<string, { title: string; lines: DocLine[]; crops: Crop[] }> =
       { label: "Note", value: "“2 cartons damaged”", hot: true },
     ],
     crops: [
-      { id: "note", line: 3, label: "crop · pod.exceptionNote", value: "handwriting", state: "warn" },
+      { id: "note", line: 3, label: "crop · exception note", value: "handwriting", state: "warn" },
     ],
   },
   clean: {

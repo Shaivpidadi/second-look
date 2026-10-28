@@ -19,7 +19,7 @@ export interface FixtureCard {
 }
 
 export interface FixtureAudit {
-  time: string;
+  moment: string;
   field: string;
   action: string;
   verdict: "clean" | "mismatch" | "blocked";
@@ -58,7 +58,7 @@ export const DEMO_STEPS: DemoStep[] = [
       {
         from: "validators",
         title: "Check digit failed",
-        body: "awb.awbNumber: serial mod-7 mismatch. Instant block, no model call.",
+        body: "AWB number: serial mod-7 mismatch. Instant block, no model call.",
         tone: "block",
         model: "validators",
         latencyMs: 0.4,
@@ -69,7 +69,7 @@ export const DEMO_STEPS: DemoStep[] = [
         title: "Local pass disagrees",
         body: "Crop read does not match the typed value. Escalating with redacted payload.",
         tone: "warn",
-        model: "glimmer · stub",
+        model: "glimmer · local",
         latencyMs: 212,
         costUsd: 0,
       },
@@ -84,8 +84,8 @@ export const DEMO_STEPS: DemoStep[] = [
       },
     ],
     audit: [
-      { time: "09:41:02", field: "awb.awbNumber", action: "submit_block:check_digit", verdict: "blocked" },
-      { time: "09:41:05", field: "awb.awbNumber", action: "fix_proposed", verdict: "blocked" },
+      { moment: "Moment 1", field: "awb.awbNumber", action: "submit_block:check_digit", verdict: "blocked" },
+      { moment: "Moment 1", field: "awb.awbNumber", action: "fix_proposed", verdict: "blocked" },
     ],
   },
   {
@@ -105,7 +105,7 @@ export const DEMO_STEPS: DemoStep[] = [
       {
         from: "validators",
         title: "Cross-doc conflict",
-        body: "invoice.totalQty 363 vs packing.totalQty 365. Flagged for review.",
+        body: "Invoice 363 vs packing 365. Flagged for review.",
         tone: "warn",
         model: "validators",
         latencyMs: 0.6,
@@ -122,8 +122,8 @@ export const DEMO_STEPS: DemoStep[] = [
       },
     ],
     audit: [
-      { time: "09:43:17", field: "invoice.totalQty", action: "flag:cross_doc", verdict: "mismatch" },
-      { time: "09:43:20", field: "invoice.totalQty", action: "escalation", verdict: "mismatch" },
+      { moment: "Moment 2", field: "invoice.totalQty", action: "flag:cross_doc", verdict: "mismatch" },
+      { moment: "Moment 2", field: "invoice.totalQty", action: "escalation", verdict: "mismatch" },
     ],
   },
   {
@@ -145,14 +145,14 @@ export const DEMO_STEPS: DemoStep[] = [
         title: "Handwriting detected",
         body: "POD exception note present. Free text redacted before any cloud call.",
         tone: "warn",
-        model: "glimmer · stub",
+        model: "glimmer · local",
         latencyMs: 188,
         costUsd: 0,
       },
       {
         from: "claim",
         title: "Claim drafted",
-        body: "Harbour Line Goods BOL-36537779 · damagedQty=2 · amount [AMOUNT TBD].",
+        body: "Harbour Line Goods BOL-36537779 · 2 damaged · amount [AMOUNT TBD].",
         tone: "info",
         model: "template",
         latencyMs: 3,
@@ -160,8 +160,8 @@ export const DEMO_STEPS: DemoStep[] = [
       },
     ],
     audit: [
-      { time: "09:45:44", field: "pod.exceptionNote", action: "flag:handwriting", verdict: "mismatch" },
-      { time: "09:45:44", field: "pod.exceptionNote", action: "claim_draft", verdict: "mismatch" },
+      { moment: "Moment 3", field: "pod.exceptionNote", action: "flag:handwriting", verdict: "mismatch" },
+      { moment: "Moment 3", field: "pod.exceptionNote", action: "claim_draft", verdict: "mismatch" },
     ],
   },
   {
@@ -192,13 +192,13 @@ export const DEMO_STEPS: DemoStep[] = [
         title: "Local pass agrees",
         body: "Crops match typed values. No Spark call, so $0 this receipt.",
         tone: "pass",
-        model: "glimmer · stub",
+        model: "glimmer · local",
         latencyMs: 176,
         costUsd: 0,
       },
     ],
     audit: [
-      { time: "09:47:03", field: "*", action: "submit_allow", verdict: "clean" },
+      { moment: "Moment 4", field: "*", action: "submit_allow", verdict: "clean" },
     ],
   },
 ];

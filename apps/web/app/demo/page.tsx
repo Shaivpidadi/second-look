@@ -7,6 +7,7 @@ import { ArrowLeft, ArrowRight, RotateCcw, Radio, Play } from "lucide-react";
 import { Wordmark } from "../../components/brand";
 import { Badge } from "../../components/ui/badge";
 import { formatCost, formatLatency } from "../../lib/format";
+import { fieldLabel } from "../../lib/fields";
 import { DEMO_STEPS, type FixtureAudit, type FixtureCard } from "../../components/demo/fixtures";
 import { PovPanel } from "../../components/demo/pov-panel";
 import { DemoFormPanel, DemoSidePanel, TitleCard } from "../../components/demo/panels";
@@ -103,7 +104,7 @@ function DemoInner() {
       const liveCards: FixtureCard[] = [];
       for (const f of r.failures) {
         liveCards.push({
-          from: "validators", title: f.rule, body: `${f.fieldId}: ${f.message}`,
+          from: "validators", title: fieldLabel(f.fieldId), body: f.message,
           tone: "block", model: "validators", latencyMs: 0.5, costUsd: 0,
         });
       }

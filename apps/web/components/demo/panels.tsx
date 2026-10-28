@@ -5,6 +5,7 @@ import { ArrowRight } from "lucide-react";
 import { Wordmark } from "../brand";
 import { Badge } from "../ui/badge";
 import { formatCost, formatLatency } from "../../lib/format";
+import { actionLabel, fieldLabel } from "../../lib/fields";
 import type { DemoStep, FixtureAudit, FixtureCard } from "./fixtures";
 
 /* ---------------------------------- title --------------------------------- */
@@ -54,10 +55,9 @@ export function DemoFormPanel({ step }: { step: DemoStep }) {
       </div>
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4 slim-scroll">
         {step.fields.map((f) => (
-          <div key={f.id}>
+          <div key={f.id} data-field-id={f.id}>
             <div className="mb-1 flex items-baseline justify-between">
               <span className="text-xs text-ink-dim">{f.label}</span>
-              <span className="font-mono text-[10px] text-ink-faint">{f.id}</span>
             </div>
             <div
               className={
@@ -154,12 +154,17 @@ export function DemoSidePanel({
         <ul className="space-y-1.5">
           {audit.length === 0 && <li className="px-1 text-xs text-ink-faint">Nothing yet. Advance a moment.</li>}
           {audit.map((a, i) => (
-            <li key={`${a.time}-${i}`} className="rounded-lg bg-panel px-2.5 py-2">
+            <li
+              key={`${a.moment}-${i}`}
+              className="rounded-lg bg-panel px-2.5 py-2"
+              data-field-id={a.field}
+              data-action={a.action}
+            >
               <div className="flex items-center justify-between">
-                <span className="font-mono text-[11px] text-ink">{a.action}</span>
-                <span className="font-mono text-[10px] text-ink-faint">{a.time}</span>
+                <span className="font-mono text-[11px] text-ink">{actionLabel(a.action)}</span>
+                <span className="font-mono text-[10px] text-ink-faint">{a.moment}</span>
               </div>
-              <div className="mt-0.5 font-mono text-[10px] text-ink-faint">{a.field} · {a.verdict}</div>
+              <div className="mt-0.5 font-mono text-[10px] text-ink-faint">{fieldLabel(a.field)} · {a.verdict}</div>
             </li>
           ))}
         </ul>
