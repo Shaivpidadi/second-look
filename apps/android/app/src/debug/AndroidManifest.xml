@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Debug manifest: merged over main; points the app at the
+         debug-only network config that allows LAN cleartext HTTP. -->
+    <application android:networkSecurityConfig="@xml/network_security_config" />
+</manifest>
