@@ -34,6 +34,8 @@ import com.secondlook.android.debug.MockPanel
 import com.secondlook.android.session.SessionViewModel
 import com.secondlook.core.api.LiveVerdict
 import com.secondlook.core.api.verdictLabel
+import com.secondlook.core.frames.CameraSource
+import com.secondlook.core.frames.phoneFallbackOffered
 
 /** Root: registration until REGISTERED, then the camera screen. */
 @Composable
@@ -112,7 +114,7 @@ fun CameraScreen(viewModel: SessionViewModel, onPreflight: () -> Unit) {
         PreviewFrame(preview)
         Text("Frames posted: $frames", style = MaterialTheme.typography.bodySmall)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = { viewModel.toggleCameraSource() }, enabled = !streaming) {
+            OutlinedButton(onClick = { viewModel.toggleCameraSource() }) {
                 Text(if (usePhone) "Source: phone" else "Source: glasses")
             }
             OutlinedButton(onClick = { viewModel.toggleChromaSwapped() }) {
@@ -143,7 +145,13 @@ fun CameraScreen(viewModel: SessionViewModel, onPreflight: () -> Unit) {
         }
         failure?.let {
             Text(it.detail, color = MaterialTheme.colorScheme.error)
-            OutlinedButton(onClick = { viewModel.clearFailure() }) { Text("Dismiss") }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = { viewModel.clearFailure() }) { Text("Dismiss") }
+                val source = if (usePhone) CameraSource.PHONE else CameraSource.GLASSES
+                if (phoneFallbackOffered(it.kind, source)) {
+                    Button(onClick = { viewModel.usePhoneFallback() }) { Text("Use phone camera") }
+                }
+            }
         }
         Text("Verdicts", style = MaterialTheme.typography.titleMedium)
         VerdictList(verdicts)

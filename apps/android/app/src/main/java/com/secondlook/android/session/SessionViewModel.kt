@@ -28,6 +28,10 @@ import com.secondlook.android.frames.YuvJpeg
 import com.secondlook.core.api.FrameEvent
 import com.secondlook.core.api.LiveVerdict
 import com.secondlook.core.api.SecondLookApi
+import com.secondlook.core.frames.CameraSource
+import com.secondlook.core.frames.SourceSwitch
+import com.secondlook.core.frames.planFallbackToPhone
+import com.secondlook.core.frames.planToggle
 import com.secondlook.core.session.FailureKind
 import com.secondlook.core.session.FailureState
 import com.secondlook.core.session.RetryPolicy
@@ -184,9 +188,32 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    /** Flip the source; a live stream restarts on it in the same tap. */
     fun toggleCameraSource() {
-        if (_streaming.value) return
-        _usePhoneCamera.update { !it }
+        applySwitch(planToggle(currentSource(), _streaming.value))
+    }
+
+    /**
+     * One-tap demo fallback: drop to the phone camera and resume the
+     * stream on the same session (verdicts, memory, speech preserved).
+     */
+    fun usePhoneFallback() {
+        val plan = planFallbackToPhone(currentSource(), _streaming.value) ?: return
+        clearFailure()
+        applySwitch(plan)
+        if (!plan.restartStream) start()
+    }
+
+    private fun currentSource(): CameraSource {
+        return if (_usePhoneCamera.value) CameraSource.PHONE else CameraSource.GLASSES
+    }
+
+    private fun applySwitch(plan: SourceSwitch) {
+        _usePhoneCamera.value = plan.to == CameraSource.PHONE
+        if (plan.restartStream) {
+            stop()
+            start()
+        }
     }
 
     fun setStreamFps(fps: Int) {

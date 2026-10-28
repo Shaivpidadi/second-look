@@ -26,6 +26,20 @@ every row (server, key, glasses link, audio route) must pass before
 recording. Verdicts arrive in the frame POST responses, so a
 multi-instance host is fine; the SSE stream is a backup.
 
+## Plan B: phone camera (if glasses DAT fails on the day)
+
+Same verdict and speech flow, same session, one tap. Either:
+
+1. On the red failure banner, tap "Use phone camera". The app clears
+   the failure, switches to the phone camera, and resumes streaming.
+2. Any time, even mid-stream, tap "Source: glasses" to flip it to
+   "Source: phone". A live stream restarts on the phone camera.
+
+Then point the phone at the paper and keep going. The fallback
+button appears only for glasses-link and glasses-permission
+failures; server and quality failures are shown instead because
+switching cameras would not fix them.
+
 ## The /demo record screen
 
 A 1920x1080 screen-recordable page: glasses POV with animated crop
