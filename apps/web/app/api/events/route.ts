@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { FRAME_FIELD_ID, handleFramePost } from "../../../lib/frame-path";
 import { evaluatePartialSubmission } from "../../../lib/gate";
 import { publishLiveVerdict } from "../../../lib/verdict-bus";
 
@@ -34,6 +35,27 @@ export async function POST(request: Request) {
   ) {
     return NextResponse.json({ ok: false, error: "bad_event" }, { status: 400 });
   }
+  // Frame events never touch the text store: the image bytes would
+  // bloat every snapshot, and frames get vision verdicts, not typing ones.
+  if (event.fieldId === FRAME_FIELD_ID) {
+    const posted = handleFramePost({
+      sessionId: event.sessionId,
+      value: event.value,
+      typedValues: valuesBySession.get(event.sessionId) ?? {},
+    });
+    if (posted.outcome === "rejected") {
+      return NextResponse.json({ ok: false, error: posted.error }, { status: 400 });
+    }
+    if (posted.outcome === "undecodable") {
+      return NextResponse.json({ ok: false, error: "bad_frame_image" }, { status: 422 });
+    }
+    if (posted.outcome === "duplicate" || posted.outcome === "throttled") {
+      return NextResponse.json({ ok: true, frame: posted.outcome });
+    }
+    void posted.done;
+    return NextResponse.json({ ok: true, frame: "accepted" });
+  }
+
   const list = store.get(event.sessionId) ?? [];
   list.push(event as FormEvent);
   store.set(event.sessionId, list);
