@@ -97,6 +97,8 @@ fun CameraScreen(viewModel: SessionViewModel) {
     val usePhone by viewModel.usePhoneCamera.collectAsState()
     val fps by viewModel.streamFps.collectAsState()
     val swapped by viewModel.chromaSwapped.collectAsState()
+    val speak by viewModel.speakVerdicts.collectAsState()
+    val tone by viewModel.cleanTone.collectAsState()
     Column(
         modifier = Modifier.fillMaxSize().padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -119,6 +121,14 @@ fun CameraScreen(viewModel: SessionViewModel) {
             Text("$fps fps", modifier = Modifier.padding(vertical = 8.dp))
             OutlinedButton(onClick = { viewModel.setStreamFps(fps + 1) }, enabled = fps < 7) {
                 Text("+")
+            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = { viewModel.toggleSpeakVerdicts() }) {
+                Text(if (speak) "Speech: on" else "Speech: off")
+            }
+            OutlinedButton(onClick = { viewModel.toggleCleanTone() }) {
+                Text(if (tone) "Clean tone: on" else "Clean tone: off")
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

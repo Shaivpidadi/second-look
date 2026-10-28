@@ -21,10 +21,13 @@ import com.meta.wearable.dat.core.types.Permission
 import com.meta.wearable.dat.core.types.PermissionStatus
 import com.meta.wearable.dat.core.types.RegistrationState
 import com.secondlook.android.frames.PhoneCameraSource
+import com.secondlook.android.frames.VerdictSpeaker
 import com.secondlook.android.frames.YuvJpeg
 import com.secondlook.core.api.FrameEvent
 import com.secondlook.core.api.LiveVerdict
 import com.secondlook.core.api.SecondLookApi
+import com.secondlook.core.speech.SpeakDebounce
+import com.secondlook.core.speech.phraseFor
 import java.time.Instant
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
@@ -111,6 +114,15 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
     private val _chromaSwapped = MutableStateFlow(false)
     val chromaSwapped: StateFlow<Boolean> = _chromaSwapped.asStateFlow()
 
+    private val _speakVerdicts = MutableStateFlow(true)
+    val speakVerdicts: StateFlow<Boolean> = _speakVerdicts.asStateFlow()
+
+    private val _cleanTone = MutableStateFlow(false)
+    val cleanTone: StateFlow<Boolean> = _cleanTone.asStateFlow()
+
+    private val speaker by lazy { VerdictSpeaker(getApplication()) }
+    private val speakDebounce = SpeakDebounce()
+
     private var session: DeviceSession? = null
     private var camera: Camera? = null
     private var phoneSource: PhoneCameraSource? = null
@@ -162,6 +174,14 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
         _chromaSwapped.update { !it }
     }
 
+    fun toggleSpeakVerdicts() {
+        _speakVerdicts.update { !it }
+    }
+
+    fun toggleCleanTone() {
+        _cleanTone.update { !it }
+    }
+
     /** Start session, camera, upload, and verdict stream. */
     fun start() {
         if (_streaming.value) return
@@ -173,6 +193,7 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
                     try {
                         api.verdicts(sessionId).collect { verdict ->
                             _verdicts.update { (listOf(verdict) + it).take(MAX_VERDICTS) }
+                            maybeSpeak(verdict)
                         }
                     } catch (e: Exception) {
                         setError("verdicts: ${e.message}")
@@ -284,6 +305,24 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
 
     override fun onCleared() {
         stop()
+        try {
+            speaker.shutdown()
+        } catch (e: Exception) {
+            Log.w(TAG, "speaker shutdown failed", e)
+        }
+    }
+
+    private fun maybeSpeak(verdict: LiveVerdict) {
+        val phrase = phraseFor(verdict)
+        if (phrase != null) {
+            if (!_speakVerdicts.value) return
+            if (!speakDebounce.shouldSpeak(verdict, System.currentTimeMillis())) return
+            speaker.speak(phrase)
+            return
+        }
+        if (verdict.state == "clean" && _cleanTone.value) {
+            speaker.beep()
+        }
     }
 
     private suspend fun ensureCameraPermission(): Boolean {
