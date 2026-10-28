@@ -1,4 +1,34 @@
-# Status — Batch 12 done: consistency, tiering proof, submission prep (Oct 28)
+# Status — Batch 13 done: reshoot critique, top-row order, API timeouts (Oct 28)
+
+## Batch 13 done
+
+Reshoot committed, all 15 shots critiqued (docs/critique-batch13.md),
+all 8 findings fixed. Screens changed, so another reshoot is needed.
+
+- Recent checks now lead with Blocked, Warn, Needs human before any
+  Pass (positional timestamps stay newest-first; counts, median, and
+  tiering split untouched).
+- Latency chart captions its dot-sized bars as validator-only
+  checks (<1ms), shown only when sub-ms runs exist.
+- Landing mock is self-consistent: typed AWB is a transposition of
+  the paper value baked into the POV image, and the fix strip
+  proposes the paper value (same numbers as /demo moment 1). Crop
+  labels both capitalized.
+- Demo verdict-card chips use the vocabulary (Blocked/Warn/Pass);
+  audit action labels say "warned: ..." instead of "flagged: ...";
+  drawer trail wraps instead of truncating mid-word; truncated
+  table cells carry full hover titles.
+- Remaining no-human PLAN work: per-attempt Model API timeout
+  (default 60s, aborts and retries like a 5xx, counts retries in
+  call stats), closing the 284s-stall follow-up. Covered by two
+  offline tests; offline eval rerun identical on both corpora.
+- Deadline trace (SUBMIT.md text unchanged): "before 6pm ET Nov 4"
+  comes from PLAN.md line 4 (goal) and line 80 (Nov 4 plan), also
+  stated in BRIEF.md line 39.
+
+Batch spend: 0 model API calls (fixtures, stubs, offline eval only).
+`pnpm -r test`: 255 pass, 0 fail. `pnpm -r typecheck`: pass
+(5 projects). `next build`: pass.
 
 ## Batch 12 done
 

@@ -135,3 +135,10 @@ Top 5 risks, each with a ≤30-min spike:
   validators-only), `docs/SUBMIT.md` checklist + write-up, offline
   eval rerun identical to README. 0 calls. Screens changed:
   reshoot needed.
+- [x] Batch 13 (Oct 28): reshoot committed, 15-shot critique in
+  docs/critique-batch13.md with all 8 findings fixed (top-row
+  severity order, chart sub-ms caption, landing mock numbers,
+  chip/label vocabulary, trail wrap, cell titles), per-attempt API
+  timeout with retry (closes the 284s-stall follow-up, tested
+  offline), offline eval rerun identical. 0 calls. Screens
+  changed: reshoot needed.
