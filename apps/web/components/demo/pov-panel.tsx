@@ -46,7 +46,7 @@ const DOCS: Record<string, { title: string; lines: DocLine[]; crops: Crop[] }> =
       { label: "Seller", value: "Meridian Foods Ltd" },
       { label: "Invoice qty", value: "363", hot: true },
       { label: "Packing qty", value: "365", hot: true },
-      { label: "Line 1", value: "Lipstick · 200 pcs" },
+      { label: "Line 1", value: "Lipstick · 198 pcs" },
       { label: "Line 2", value: "Foundation · 165 pcs" },
     ],
     crops: [

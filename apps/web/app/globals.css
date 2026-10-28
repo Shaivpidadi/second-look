@@ -70,6 +70,14 @@ body {
   border-radius: 4px;
 }
 
+/*
+ * Unlayered, like the rule above: layered Tailwind utilities can never
+ * override an unlayered rule, so the invalid focus color lives here.
+ */
+input[aria-invalid="true"]:focus-visible {
+  outline-color: var(--color-block);
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
