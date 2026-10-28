@@ -506,10 +506,10 @@ test("frame: the model sees a downscaled image on big frames", async () => {
       };
     },
   };
-  const gray = new Uint8Array(800 * 1000).fill(200);
+  const gray = new Uint8Array(1000 * 1600).fill(200);
   const posted = handleFramePost({
     sessionId: "frame-downscale",
-    value: jpegDataUrl(gray, 800, 1000),
+    value: jpegDataUrl(gray, 1000, 1600),
     typedValues: {},
     adapters: { ...stubAdapters(), spark },
   });

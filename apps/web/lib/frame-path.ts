@@ -43,8 +43,13 @@ export const INK_DIFF_THRESHOLD = 0.55;
 /** Near-duplicate frames re-judge after this long without a verdict. */
 export const REJUDGE_AFTER_MS = 60_000;
 
-/** Model images downscale to this long side; dedupe still uses full pixels. */
-export const FRAME_JUDGE_LONG_SIDE = 768;
+/**
+ * Model images downscale to this long side; dedupe still uses full
+ * pixels, and smaller frames pass through byte-identical. 768 lost a
+ * hyphen read (PKG- read as PKG=); 1400 keeps corpus-scale documents
+ * untouched while still bounding large phone frames.
+ */
+export const FRAME_JUDGE_LONG_SIDE = 1400;
 
 /** Reply-contract keys that feed session document memory (no bias: placeholders). */
 export const FRAME_RESPONSE_KEYS =
