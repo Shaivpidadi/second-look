@@ -111,6 +111,83 @@ export const HEADLINES: HeadlineQuote[] = [
     quotes: [
       { file: "STATUS.md", text: "40 = 18 + 10 + 7 + 5" },
       { file: "STATUS.md", text: "14 local, 22 escalated, 4 validators-only" },
+      { file: "apps/web/lib/dashboard-stats.test.ts", text: "assert.equal(stats.total, 40)" },
+      { file: "apps/web/lib/dashboard-stats.test.ts", text: "assert.equal(stats.pass, 18)" },
+      { file: "apps/web/lib/dashboard-stats.test.ts", text: "assert.equal(stats.warn, 10)" },
+      { file: "apps/web/lib/dashboard-stats.test.ts", text: "assert.equal(stats.blocked, 7)" },
+      { file: "apps/web/lib/dashboard-stats.test.ts", text: "assert.equal(stats.needsHuman, 5)" },
+      { file: "apps/web/lib/dashboard-stats.test.ts", text: "assert.equal(tiers.local, 14)" },
+      { file: "apps/web/lib/dashboard-stats.test.ts", text: "assert.equal(tiers.escalated, 22)" },
+      {
+        file: "apps/web/lib/dashboard-stats.test.ts",
+        text: "assert.equal(tiers.validatorsOnly, 4)",
+      },
+      { file: "apps/web/lib/dashboard-stats.test.ts", text: "assert.equal(tiers.sparkCalls, 22)" },
+      { file: "docs/SHOTLIST.md", text: "KPIs 40 / 7 / 10 / 2.9s / $0.14" },
+      { file: "docs/SHOTLIST.md", text: "breakdown 18 / 10 / 7 / 5" },
+      { file: "docs/SHOTLIST.md", text: "tiering 14 agree ($0) vs 22 escalated" },
+      { file: "docs/SHOTLIST.md", text: "(22 calls, 3.1s median, $0.14)" },
+      { file: "docs/SHOTLIST.md", text: "235ms + 3.8s" },
+    ],
+  },
+  {
+    source: "dashboard eval view (rounded from README)",
+    quotes: [
+      {
+        file: "apps/web/app/dashboard/page.tsx",
+        text: '{ arm: "check-digit-only", split: "hard 40", precision: "100.0%", recall: "39.4%", latency: "<1ms", cost: "$0" }',
+      },
+      {
+        file: "apps/web/app/dashboard/page.tsx",
+        text: '{ arm: "single-model-real", split: "hard 40", precision: "100.0%", recall: "100.0%", latency: "1849ms", cost: "$0.086" }',
+      },
+      {
+        file: "apps/web/app/dashboard/page.tsx",
+        text: '{ arm: "tiered-real", split: "hard 40", precision: "100.0%", recall: "100.0%", latency: "4438ms", cost: "$0.128" }',
+      },
+      {
+        file: "apps/web/app/dashboard/page.tsx",
+        text: '{ arm: "vision-real", split: "hard 40", precision: "100.0%", recall: "100.0%", latency: "3086ms", cost: "$0.62" }',
+      },
+      {
+        file: "apps/web/app/dashboard/page.tsx",
+        text: '{ arm: "tiered-real", split: "std 100", precision: "100.0%", recall: "98.8%", latency: "3118ms", cost: "†" }',
+      },
+      { file: "docs/SHOTLIST.md", text: "| tiered-real std 100 | 98.8% | 3118ms | † |" },
+      { file: "docs/SHOTLIST.md", text: "| vision-real hard 40 | 100% | 3086ms | $0.62 |" },
+    ],
+  },
+  {
+    source: "/demo fixture cards (side stats sum these)",
+    quotes: [
+      { file: "apps/web/components/demo/fixtures.ts", text: "latencyMs: 212" },
+      { file: "apps/web/components/demo/fixtures.ts", text: "latencyMs: 2840" },
+      { file: "apps/web/components/demo/fixtures.ts", text: "costUsd: 0.0021" },
+      { file: "apps/web/components/demo/fixtures.ts", text: "latencyMs: 3210" },
+      { file: "apps/web/components/demo/fixtures.ts", text: "costUsd: 0.0024" },
+      { file: "apps/web/components/demo/fixtures.ts", text: "latencyMs: 188" },
+      { file: "apps/web/components/demo/fixtures.ts", text: "latencyMs: 176" },
+      { file: "docs/SHOTLIST.md", text: "Expect: 3.1s, 2 calls, $0.0021" },
+      { file: "docs/SHOTLIST.md", text: "Expect: 3.2s, 1 call, $0.0024" },
+      { file: "docs/SHOTLIST.md", text: "Expect: 191ms, 1 call, $0" },
+      { file: "docs/SHOTLIST.md", text: "Expect: 177ms, 1 call, $0" },
+      { file: "docs/SHOTLIST.md", text: "invoice 363 vs packing 365" },
+      { file: "docs/SHOTLIST.md", text: "lines 198 + 165" },
+    ],
+  },
+  {
+    source: "stub clip replay beats + live replay cost",
+    quotes: [
+      {
+        file: "docs/SHOTLIST.md",
+        text: "verdict: Blocked (AWB check digit invalid, 0.3s)",
+      },
+      {
+        file: "docs/SHOTLIST.md",
+        text: "verdict: Warn (invoice 363 vs packing 365, 0.3s)",
+      },
+      { file: "docs/SHOTLIST.md", text: "claim drafted: BOL-36537779, damagedQty=2" },
+      { file: "docs/SHOTLIST.md", text: "Live variant spends 4 calls (~$0.02)" },
     ],
   },
   {

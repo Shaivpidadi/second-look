@@ -49,6 +49,9 @@ Expect: 191ms, 1 call, $0. Dashboard Claims shows 2 drafts
 with `[AMOUNT TBD]`. Backup: `docs/shots/demo-step3-1920.png`,
 `dashboard-claims-1440.png`.
 
+Press Right once more for moment 4 (not recorded): Pass badge,
+gate OPEN. Expect: 177ms, 1 call, $0.
+
 ## 7. Numbers: eval overlay (static)
 
 | tiered-real std 100 | 98.8% | 3118ms | † |
