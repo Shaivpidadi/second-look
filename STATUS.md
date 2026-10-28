@@ -1,5 +1,45 @@
 # Status — Batch 11 in progress: critique fixes, latency, demo script (Oct 28)
 
+## Batch 11 latency: end-to-end checks under 5s
+
+Before (batch 8 real E2E, p50 over 3 runs): qty-gap total 11102ms
+(first verdict 3241ms), awb-swap total 11022ms. Two sequential live
+Spark calls per keyframe (text, then image-grounded) plus a
+sequential 3-keyframe tail. Stub E2E was already green at ~350ms,
+so the target could only be hit by restructuring the real call
+graph, verified with 4 minimal real probes (10 calls total).
+
+Fix, in eval/clips/ingest.ts plus two pipeline options:
+
+- Single keyframe default (frames.ts `maxKeyframes` 3 to 1).
+  Worst-of-3 scanning stays available explicitly; no test pinned
+  the old default.
+- `runTieredPipeline` grew `skipSpark`: validators plus the local
+  Glimmer pass report escalation reasons without calling Spark.
+- The k1 fast verdict is now that local preliminary (streams in
+  ~200ms with no Spark explanation) and exactly one image-grounded
+  escalation refines it. The image call starts on the frame bytes
+  immediately instead of waiting for SAM boxes: both adapters send
+  the whole frame as the crop image, so the inputs are identical
+  and SAM latency drops off the critical path. FAST/FULL phases,
+  verdicts, fixes, and cache behavior are unchanged.
+
+After (real, this batch, 0 retries):
+
+- qty-gap: verdict mismatch, total 4892ms (fast 245ms), 2 calls,
+  $0.0057. Previous probe of the intermediate design (two
+  overlapped sparks) took 5839ms; the text call was redundant.
+- awb-swap: verdict blocked, total 3401ms, fix proposes the exact
+  paper value. 2 calls.
+
+Spark cost per escalating check roughly halves (one escalation,
+not two). Two eval tests pinned the old call counts (3 and 2 live
+escalations); they now pin 2 and 1 with the same cache-reuse
+contracts. Rendezvous overlap test still passes: the image
+escalation starts while the crop is in flight. Follow-up: per-call
+API variance (±2s observed) is now the whole budget; shorter
+Spark explanations would add margin.
+
 ## Batch 11 critique
 
 Harsh pass over all 15 screenshots in docs/shots, judged against

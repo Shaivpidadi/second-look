@@ -45,6 +45,12 @@ export interface TieredPipelineInput {
   verdictCache?: VerdictCache;
   /** Per-call Spark `max_output_tokens` override for this escalation. */
   sparkMaxOutputTokens?: number;
+  /**
+   * Run validators and Glimmer only, skipping the Spark call while
+   * still reporting escalationReasons. Lets callers decide whether
+   * to escalate, and overlap the escalation with other work.
+   */
+  skipSpark?: boolean;
 }
 
 export interface TieredPipelineResult {
@@ -129,7 +135,7 @@ export async function runTieredPipeline(
 
   let sparkOut: SparkEscalationOutput | null = null;
   let sparkCached = false;
-  if (escalationReasons.length > 0) {
+  if (escalationReasons.length > 0 && input.skipSpark !== true) {
     const hasImages = crops.length > 0;
     const cached = input.verdictCache?.lookup(glimmerOut.redacted, escalationReasons, hasImages);
     if (cached?.hit) {

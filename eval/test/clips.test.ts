@@ -118,8 +118,9 @@ describe("runClipFrames", () => {
     const result = await runClipFrames(frames(2), paper, { ...paper }, nominalBoxes(), {
       spark,
     });
-    // Keyframe 1 runs text + refined escalations; keyframe 2 one more.
-    assert.equal(escalations, 3);
+    // Keyframe 1 runs one image escalation; keyframe 2 one more (no
+    // shared verdict cache here, so nothing hits).
+    assert.equal(escalations, 2);
     assert.equal(result.frames[0]!.tiered.modelCalls[1]?.adapter, "recording");
   });
 
@@ -203,13 +204,13 @@ describe("runClipFrames", () => {
       spark,
       verdictCache: new VerdictCache(),
     });
-    // Fast text + refined image escalations, then a cache hit on frame 2.
-    assert.equal(escalations, 2);
+    // One image escalation, then a cache hit on frame 2.
+    assert.equal(escalations, 1);
     assert.equal(result.sparkCacheHits, 1);
     assert.equal(result.frames[1]!.tiered.sparkCached, true);
   });
 
-  it("overlaps the crop with the fast text verdict", async () => {
+  it("overlaps the crop with the image escalation", async () => {
     // Rendezvous: each side waits for the other to start, so a sequential
     // path would deadlock and trip the timeout instead of passing.
     let sparkStarted = false;
@@ -250,6 +251,56 @@ describe("runClipFrames", () => {
       phases.push(partial.phase);
     }
     assert.deepEqual(phases, ["fast", "full"]);
+  });
+
+  it("streams a sparkless fast verdict, then one image escalation", async () => {
+    // One Spark call per reading set: the fast verdict is the local
+    // preliminary, and only the refinement escalates, with an image.
+    let escalations = 0;
+    let sawImage = false;
+    const spark: SparkAdapter = {
+      name: "counting",
+      async escalate(input): Promise<SparkEscalationOutput> {
+        escalations += 1;
+        if (input.crops.length > 0) sawImage = true;
+        return { explanation: "ok", proposedFixes: [], latencyMs: 1, costUsd: 0 };
+      },
+    };
+    const { form } = buildForm("clip-test", 42);
+    form.invoice.totalQty = form.packing.totalQty - 2;
+    const paper: Record<string, string> = {
+      "invoice.totalQty": String(form.invoice.totalQty),
+      "packing.totalQty": String(form.packing.totalQty),
+    };
+    const partials: Array<{ phase: string; spark: boolean }> = [];
+    for await (const partial of runClipFramesStream(
+      frames(1),
+      paper,
+      { ...paper },
+      nominalBoxes(),
+      { spark },
+    )) {
+      partials.push({ phase: partial.phase, spark: partial.frame.tiered.spark !== null });
+    }
+    assert.deepEqual(partials, [
+      { phase: "fast", spark: false },
+      { phase: "full", spark: true },
+    ]);
+    assert.equal(escalations, 1);
+    assert.equal(sawImage, true);
+  });
+
+  it("runs a single keyframe by default on decodable frames", async () => {
+    const a = renderForm(buildForm("sharp-a", 11).form).awb;
+    const b = renderForm(buildForm("sharp-b", 12).form).awb;
+    const sampled = [
+      { index: 0, timestampSec: 0, png: a },
+      { index: 1, timestampSec: 0.5, png: b },
+    ];
+    const { typed } = buildForm("clip-test", 42);
+    const result = await runClipFrames(sampled, { ...typed }, typed, nominalBoxes());
+    assert.equal(result.framesScanned, 2);
+    assert.equal(result.keyframes, 1);
   });
 
   it("runs keyframes sharpest-first on decodable frames", async () => {

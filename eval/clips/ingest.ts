@@ -117,7 +117,7 @@ export interface ClipPathOptions {
   frameWidth?: number;
   frameHeight?: number;
   crossDocOptions?: CrossDocOptions;
-  /** Max keyframes to run verdicts on; default 3. */
+  /** Max keyframes to run verdicts on; default 1 (single sharpest). */
   maxKeyframes?: number;
   /** Min dhash bits changed to cut a new keyframe; default 8. */
   keyframeThreshold?: number;
@@ -254,12 +254,17 @@ function withSamCall(
 
 /**
  * Stream keyframes through the live-glasses path. The sharpest keyframe
- * takes the fast path: a text-only verdict starts immediately while the
- * crop runs concurrently, yielding a `fast` partial as soon as the text
- * verdict lands; the image-grounded rerun follows as the `full`
- * refinement. Remaining keyframes run the full path. Paper values come
- * from the clip's documented ground truth; typed values come from the
- * screen reader.
+ * takes the fast path: validators plus the Glimmer local pass stream a
+ * `fast` verdict in milliseconds while the crop runs concurrently,
+ * then ONE image-grounded Spark escalation refines it as `full`. A
+ * separate text-only escalation would double Spark cost and put two
+ * API calls on the critical path for a verdict the deterministic
+ * checks already fixed, so the fast verdict carries no Spark
+ * explanation; the refinement does. Remaining keyframes (when callers
+ * ask for more than one) run the full path sequentially so each
+ * reuses the verdict cache the last one stored. Paper values come
+ * from the clip's documented ground truth; typed values come from
+ * the screen reader.
  */
 export async function* runClipFramesStream(
   frames: SampledFrame[],
@@ -293,35 +298,80 @@ export async function* runClipFramesStream(
   };
   if (keyframes.length > 0) {
     const frame = frames[keyframes[0]!]!;
-    const textPromise = runTieredPipeline({ ...tieredOptions, crops: [] });
+    // Crop first: the rendezvous contract is that Spark starts while a
+    // crop is already in flight, never before it.
     const cropPromise = cropFrame(frame, sam, concept, boxes, cropCache, options);
-    const tieredText = await textPromise;
-    yield emit({
-      frame: {
-        timestampSec: frame.timestampSec,
-        crops: [],
-        tiered: { ...tieredText, modelCalls: [...tieredText.modelCalls] },
-      },
-      elapsedMs: performance.now() - started,
-      cropCached: false,
-      sparkCached: tieredText.sparkCached,
-      phase: "fast",
-    });
-    const crop = await cropPromise;
-    const tieredFull = tieredText.escalated
-      ? await runTieredPipeline({ ...tieredOptions, crops: crop.crops })
-      : tieredText;
-    yield emit({
-      frame: {
-        timestampSec: frame.timestampSec,
-        crops: crop.crops,
-        tiered: withSamCall(tieredFull, sam, crop),
-      },
-      elapsedMs: performance.now() - started,
-      cropCached: crop.cached,
-      sparkCached: tieredFull.sparkCached,
-      phase: "full",
-    });
+    // Local-only preliminary: validators plus Glimmer decide whether
+    // this frame needs Spark at all. Glimmer is local in every mode,
+    // so re-running it inside the escalations below costs nothing.
+    const prelim = await runTieredPipeline({ ...tieredOptions, crops: [], skipSpark: true });
+    if (prelim.escalationReasons.length === 0) {
+      const crop = await cropPromise;
+      yield emit({
+        frame: {
+          timestampSec: frame.timestampSec,
+          crops: [],
+          tiered: { ...prelim, modelCalls: [...prelim.modelCalls] },
+        },
+        elapsedMs: performance.now() - started,
+        cropCached: false,
+        sparkCached: false,
+        phase: "fast",
+      });
+      yield emit({
+        frame: {
+          timestampSec: frame.timestampSec,
+          crops: crop.crops,
+          tiered: withSamCall(prelim, sam, crop),
+        },
+        elapsedMs: performance.now() - started,
+        cropCached: crop.cached,
+        sparkCached: false,
+        phase: "full",
+      });
+    } else {
+      // One image-grounded escalation, started immediately on the
+      // frame bytes: every adapter sends the whole frame as the crop
+      // image (SAM boxes are audit provenance, attached below), so
+      // the refinement never waits for SAM. The fast verdict is the
+      // local preliminary, streamed in milliseconds.
+      const frameCrop: Crop = {
+        box: {
+          x: 0,
+          y: 0,
+          width: options.frameWidth ?? 720,
+          height: options.frameHeight ?? 1280,
+        },
+        image: frame.png,
+      };
+      const fullPromise = runTieredPipeline({
+        ...tieredOptions,
+        crops: [frameCrop],
+      }).then(async (tiered) => ({ tiered, crop: await cropPromise }));
+      yield emit({
+        frame: {
+          timestampSec: frame.timestampSec,
+          crops: [],
+          tiered: { ...prelim, modelCalls: [...prelim.modelCalls] },
+        },
+        elapsedMs: performance.now() - started,
+        cropCached: false,
+        sparkCached: false,
+        phase: "fast",
+      });
+      const { crop, tiered: tieredFull } = await fullPromise;
+      yield emit({
+        frame: {
+          timestampSec: frame.timestampSec,
+          crops: crop.crops,
+          tiered: withSamCall(tieredFull, sam, crop),
+        },
+        elapsedMs: performance.now() - started,
+        cropCached: crop.cached,
+        sparkCached: tieredFull.sparkCached,
+        phase: "full",
+      });
+    }
   }
   for (const index of keyframes.slice(1)) {
     const frame = frames[index]!;

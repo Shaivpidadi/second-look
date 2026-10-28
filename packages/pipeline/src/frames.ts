@@ -197,7 +197,11 @@ export function analyzeFrames(pngs: Uint8Array[]): FrameAnalysis[] {
 }
 
 export interface KeyframeOptions {
-  /** Max keyframes to keep; default 3. */
+  /**
+   * Max keyframes to keep; default 1. One sharpest keyframe keeps
+   * end-to-end verdicts under the 5s target; pass more only for
+   * robustness scans that can afford the sequential tail.
+   */
   maxKeyframes?: number;
   /** Min dhash bits changed since the last keyframe; default 8. */
   changeThreshold?: number;
@@ -212,7 +216,7 @@ export function selectKeyframes(
   analyses: FrameAnalysis[],
   options: KeyframeOptions = {},
 ): number[] {
-  const maxKeyframes = options.maxKeyframes ?? 3;
+  const maxKeyframes = options.maxKeyframes ?? 1;
   const changeThreshold = options.changeThreshold ?? 8;
   if (!Number.isInteger(maxKeyframes) || maxKeyframes < 1) {
     throw new Error(`frames: maxKeyframes must be >= 1, got ${maxKeyframes}`);

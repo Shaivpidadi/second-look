@@ -78,6 +78,24 @@ describe("runTieredPipeline", () => {
     assert.ok((result.modelCalls[0]?.latencyMs ?? -1) >= 0);
   });
 
+  it("skipSpark reports escalation reasons without calling Spark", async () => {
+    const spark = new CountingSpark();
+    const typed = { ...cleanTyped(), "packing.totalQty": "121" };
+    const result = await runTieredPipeline({
+      readings: cleanReadings(),
+      typedValues: typed,
+      glimmer: new StubGlimmerAdapter(),
+      spark,
+      skipSpark: true,
+    });
+    assert.deepEqual(result.escalationReasons, ["cross_doc_conflict"]);
+    assert.equal(result.spark, null);
+    assert.equal(result.escalated, false);
+    assert.equal(spark.calls, 0);
+    assert.equal(result.verdict.state, "mismatch");
+    assert.equal(result.modelCalls.length, 1);
+  });
+
   it("runs validators first: check-digit failure blocks with no Spark call", async () => {
     const spark = new CountingSpark();
     const readings = cleanReadings().map((r) =>
