@@ -1,4 +1,44 @@
-# Status — Batch 13 done: reshoot critique, top-row order, API timeouts (Oct 28)
+# Status — Batch 14 done: abstention gate, sub-5s confirm, doc dry-run (Oct 28)
+
+## Batch 14 done
+
+Reshoot committed, all 15 shots critiqued
+(docs/critique-batch14.md), all 4 findings fixed. Screens changed
+(SSCC pool, eval row), so another reshoot is needed; the shots
+script now also captures the audit view.
+
+- Shots script: header and DEMO.md unified on the working
+  `pnpm --filter @second-look/web exec next start -p 3100`;
+  renamed to shots.mts, which removes the
+  MODULE_TYPELESS_PACKAGE_JSON warning without touching the Next
+  app package (still typechecked via tsconfig include).
+- Vision confidence gate: the judge prompt asks for a
+  `low_confidence` list in the same call (0 extra calls); the arm
+  abstains on unreadable or low-confidence fields. Measured:
+  pilot 10/10 at 100/100, full hard 40 at 100.0%/100.0%
+  (3085.7ms, $0.6169), 0 abstentions both runs. Verdict:
+  gate kept (cheap, tested), behavior documented as
+  judge-always on current corpora. README, DEMO.md, and the
+  dashboard eval row synced to the new run.
+- Totals under 5s confirmed: stub E2E 4/4 pass
+  (320/82/327/293ms); real E2E 4/4 pass
+  (2636/105/2976/311ms, 4 calls, 0 retries, fix correct,
+  now 11 of 13 live runs). Single keyframe (1/15) plus
+  overlapped calls on both.
+- DEMO.md dry-run: replay cost corrected to 4 calls (~$0.02),
+  fix rate to 11 of 13, sources line, abstention note, and
+  "one Spark call per verdict". One real replay beat took
+  5.6s end to end: further proof that per-call variance
+  (±2s) is the whole budget (shorter Spark explanations
+  would add margin).
+- SUBMIT.md is final copy: Glimmer marked stubbed, claims
+  marked template-drafted, measured-results paragraph
+  rewritten to current totals, exact build command.
+
+Batch spend: 58/150 real API calls, 0 retries (10 vision
+pilot + 40 vision full + 4 clip E2E + 4 demo replay).
+`pnpm -r test`: 257 pass, 0 fail. `pnpm -r typecheck`: pass
+(5 projects). `next build`: pass.
 
 ## Batch 13 done
 

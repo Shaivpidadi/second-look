@@ -142,3 +142,11 @@ Top 5 risks, each with a ≤30-min spike:
   timeout with retry (closes the 284s-stall follow-up, tested
   offline), offline eval rerun identical. 0 calls. Screens
   changed: reshoot needed.
+- [x] Batch 14 (Oct 28): reshoot committed, 15-shot critique in
+  docs/critique-batch14.md with all 4 findings fixed (SSCC pool,
+  audit shot, run instructions, .mts rename kills the module
+  warning), same-call vision confidence gate measured on hard 40
+  (100/100, 0 abstentions: kept, judge-always documented),
+  sub-5s totals re-confirmed on stub and real clip E2E, DEMO.md
+  dry-run corrections, SUBMIT.md final copy. 58/150 calls.
+  Screens changed: reshoot needed.
