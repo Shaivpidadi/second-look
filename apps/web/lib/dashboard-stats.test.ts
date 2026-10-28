@@ -88,4 +88,16 @@ describe("selectRunStats", () => {
     // Median of the fixture latencies, p50 near 3s by design.
     assert.ok(stats.medianLatencyMs > 2000 && stats.medianLatencyMs < 4000);
   });
+
+  it("shows every non-clean status in the first screenful, newest first", () => {
+    const { entries } = buildDemoDataset(Date.now());
+    const runs = groupRuns(entries);
+    const firstEight = runs.slice(0, 8).map((run) => run.verdict);
+    for (const verdict of ["blocked", "mismatch", "needs-human"]) {
+      assert.ok(firstEight.includes(verdict), `first 8 rows miss ${verdict}`);
+    }
+    const timestamps = runs.map((run) => run.ts);
+    const sorted = [...timestamps].sort().reverse();
+    assert.deepEqual(timestamps, sorted);
+  });
 });

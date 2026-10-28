@@ -2,7 +2,7 @@
 
 export function formatLatency(ms: number): string {
   if (!Number.isFinite(ms) || ms < 0) return "n/a";
-  if (ms > 0 && ms < 1) return "<1ms";
+  if (ms < 1) return "<1ms";
   if (ms < 1000) return `${ms.toFixed(0)}ms`;
   return `${(ms / 1000).toFixed(1)}s`;
 }
