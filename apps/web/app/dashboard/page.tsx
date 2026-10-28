@@ -44,6 +44,7 @@ import {
   type TierStats,
 } from "../../lib/dashboard-stats";
 import { buildDemoDataset } from "../../lib/demo-data";
+import { trapTab } from "../../lib/focus-trap";
 import { cn } from "../../lib/cn";
 
 /** Dashboard dataset id for the built-in demo data (see lib/demo-data). */
@@ -778,15 +779,42 @@ function ChecksTable({
 }
 
 function CheckDrawer({ run, onClose }: { run: CheckRun; onClose: () => void }) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
+  // onClose is a fresh closure each parent render; mirror it so the
+  // mount effect below runs once and never yanks focus on updates.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
   useEffect(() => {
+    const opener = document.activeElement;
+    closeRef.current?.focus();
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") {
+        onCloseRef.current();
+        return;
+      }
+      if (e.key !== "Tab") return;
+      const dialog = dialogRef.current;
+      if (!dialog) return;
+      const focusables = [...dialog.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])',
+      )];
+      if (trapTab(focusables, document.activeElement, e.shiftKey)) e.preventDefault();
     };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      if (opener instanceof HTMLElement) opener.focus();
+    };
+  }, []);
   return (
-    <div className="fixed inset-0 z-50" role="dialog" aria-modal="true" aria-label="Check detail">
+    <div
+      ref={dialogRef}
+      className="fixed inset-0 z-50"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Check detail"
+    >
       <button
         type="button"
         aria-label="Close check detail"
@@ -798,6 +826,7 @@ function CheckDrawer({ run, onClose }: { run: CheckRun; onClose: () => void }) {
           <Badge tone={verdictTone(run.verdict)}>{verdictLabel(run.verdict)}</Badge>
           <span className="font-mono text-xs text-ink-faint tabular">{formatTime(run.ts)}</span>
           <Button
+            ref={closeRef}
             size="sm"
             variant="ghost"
             className="ml-auto !px-2"
