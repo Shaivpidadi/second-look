@@ -13,6 +13,24 @@ SSCC label) into a receiving form. Second Look compares the paper
 against the typed values through a tiered pipeline and stops bad
 submissions before they leave the dock.
 
+## Try it in 2 minutes (no keys, no network)
+
+```sh
+pnpm install
+pnpm --filter @second-look/web dev   # open http://localhost:3000/demo, press Start
+```
+
+In another terminal:
+
+```sh
+pnpm --filter @second-look/eval eval -- --arms check-digit-only,single-model,tiered --limit 5
+```
+
+No `.env` needed: stubs serve every model call. On `/form`, type a
+wrong AWB digit and watch the submit gate block with a fix. The
+numbers below come from the same runner with live arms (STATUS.md
+records shapes, latency, and spend per batch).
+
 ## Checks
 
 1. Field match: paper vs. typed value (transpositions, dropped digits,
@@ -241,8 +259,9 @@ pnpm -r typecheck
   only under `/Volumes/Crucial X9/second-look-models`, never the
   internal disk. No weights are downloaded by any script.
 - All real adapters read `MODEL_API_KEY` (alias `META_API_KEY`) from
-  the environment at call time (CLIs load `.env` at startup) and fail
-  cleanly naming both vars when unset.
+  the environment at call time (the Next app loads `.env`
+  automatically; eval CLIs need it exported first) and fail cleanly
+  naming both vars when unset.
 - Claim drafts use the deterministic template; the Spark body hook is
   wired but the E2E keeps the template path.
 
