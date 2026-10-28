@@ -31,7 +31,7 @@ const NUMBERS = [
   { label: "Tiered recall · 100 forms", value: "98.8%", note: "precision 100.0%" },
   { label: "Vision recall · 40 hard", value: "100%", note: "$0.015 / form" },
   { label: "Validators alone · hard", value: "39.4%", note: "why tiers exist" },
-  { label: "First verdict p50", value: "3.2s", note: "fast path, live" },
+  { label: "First verdict p50 · qty-gap", value: "3.2s", note: "fast path, live" },
   { label: "Text cost / form", value: "$0.003", note: "tiered, priced" },
 ];
 
@@ -74,10 +74,9 @@ export default function Home() {
               The co-signer that actually reads the paperwork.
             </h1>
             <p className="mt-6 max-w-lg text-[17px] leading-relaxed text-ink-dim">
-              In 2020 a bank wired $900M by mistake because a form looked
-              right. Second Look reads the paper before you sign — glasses
-              on the documents, a reader on the keystrokes, and a gate on
-              submit.
+              In 2024 a single digit mix-up cost Revlon $1M. Second Look
+              reads the paper before you sign — glasses on the documents,
+              a reader on the keystrokes, and a gate on submit.
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-3">
               <Button size="lg" asChild>

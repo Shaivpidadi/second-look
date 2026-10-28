@@ -5,17 +5,28 @@ import { motion, AnimatePresence, useReducedMotion } from "motion/react";
 import { ScanLine } from "lucide-react";
 import { cn } from "../../lib/cn";
 
-/** Stylised document + animated crop boxes for the demo POV panel. */
+/**
+ * Stylised document + animated crop boxes for the demo POV panel.
+ * Each crop anchors to a document line, so the box always lands on
+ * the value it reads regardless of panel size.
+ */
 
 interface Crop {
   id: string;
+  /** Index into the doc's lines. */
+  line: number;
   label: string;
   value: string;
   state: "ok" | "bad" | "warn";
-  style: React.CSSProperties;
 }
 
-const DOCS: Record<string, { title: string; lines: Array<{ label: string; value: string; hot?: boolean }>; crops: Crop[] }> = {
+interface DocLine {
+  label: string;
+  value: string;
+  hot?: boolean;
+}
+
+const DOCS: Record<string, { title: string; lines: DocLine[]; crops: Crop[] }> = {
   awb: {
     title: "AIR WAYBILL · 879-1541 9121",
     lines: [
@@ -26,21 +37,21 @@ const DOCS: Record<string, { title: string; lines: Array<{ label: string; value:
       { label: "Pieces", value: "120 CTN" },
     ],
     crops: [
-      { id: "awb", label: "crop · awb.awbNumber", value: "87915419121", state: "bad", style: { top: "52%", left: "30%", width: "52%", height: "13%" } },
+      { id: "awb", line: 3, label: "crop · awb.awbNumber", value: "87915419121", state: "bad" },
     ],
   },
   invoice: {
-    title: "COMMERCIAL INVOICE · INV-90412",
+    title: "INVOICE + PACKING LIST · INV-90412",
     lines: [
       { label: "Seller", value: "Revlon Consumer Products" },
-      { label: "Buyer", value: "Harbour Line Goods Ltd" },
+      { label: "Invoice qty", value: "363", hot: true },
+      { label: "Packing qty", value: "365", hot: true },
       { label: "Line 1", value: "Lipstick · 200 pcs" },
       { label: "Line 2", value: "Foundation · 165 pcs" },
-      { label: "Total qty", value: "363", hot: true },
     ],
     crops: [
-      { id: "inv", label: "crop · invoice.totalQty", value: "363", state: "warn", style: { top: "66%", left: "52%", width: "26%", height: "12%" } },
-      { id: "pack", label: "crop · packing.totalQty", value: "365", state: "warn", style: { top: "80%", left: "52%", width: "26%", height: "12%" } },
+      { id: "inv", line: 1, label: "crop · invoice.totalQty", value: "363", state: "warn" },
+      { id: "pack", line: 2, label: "crop · packing.totalQty", value: "365", state: "warn" },
     ],
   },
   pod: {
@@ -52,7 +63,7 @@ const DOCS: Record<string, { title: string; lines: Array<{ label: string; value:
       { label: "Note", value: "“2 cartons damaged”", hot: true },
     ],
     crops: [
-      { id: "note", label: "crop · pod.exceptionNote", value: "handwriting", state: "warn", style: { top: "58%", left: "24%", width: "58%", height: "16%" } },
+      { id: "note", line: 3, label: "crop · pod.exceptionNote", value: "handwriting", state: "warn" },
     ],
   },
   clean: {
@@ -64,7 +75,7 @@ const DOCS: Record<string, { title: string; lines: Array<{ label: string; value:
       { label: "Received", value: "120 CTN · no exceptions", hot: true },
     ],
     crops: [
-      { id: "all", label: "crop · full page", value: "match", state: "ok", style: { top: "12%", left: "10%", width: "80%", height: "76%" } },
+      { id: "all", line: 3, label: "crop · received count", value: "match", state: "ok" },
     ],
   },
 };
@@ -79,64 +90,106 @@ function useClock(running: boolean) {
   return t;
 }
 
+function stamp(tick: number): string {
+  const mm = String(Math.floor(tick / 120)).padStart(2, "0");
+  const ss = String(Math.floor(tick / 2) % 60).padStart(2, "0");
+  const ff = String(tick % 2).padStart(2, "0");
+  return `${mm}:${ss}:${ff}`;
+}
+
+const CROP_TONE = {
+  bad: "border-block/90 bg-block/10",
+  warn: "border-warn/90 bg-warn/10",
+  ok: "border-pass/80 bg-pass/10",
+} as const;
+
+const CHIP_TONE = {
+  bad: "bg-block text-white",
+  warn: "bg-warn text-black",
+  ok: "bg-pass text-black",
+} as const;
+
 export function PovPanel({ doc, live }: { doc: keyof typeof DOCS; live: boolean }) {
   const reduce = useReducedMotion();
   const tick = useClock(true);
   const d = DOCS[doc];
-  const mm = String(Math.floor(tick / 120)).padStart(2, "0");
-  const ss = String(Math.floor(tick / 2) % 60).padStart(2, "0");
-  const ff = String(tick % 2).padStart(2, "0");
 
   return (
     <div className="relative flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-line bg-sunken">
-      {/* header strip */}
       <div className="flex items-center justify-between border-b border-line px-4 py-2">
         <span className="flex items-center gap-2 text-xs font-medium text-ink-dim">
           <span className={cn("inline-block h-2 w-2 rounded-full", live ? "animate-pulse bg-block" : "bg-amber-400")} />
           {live ? "LIVE POV · glasses 2fps" : "FIXTURE POV · replay"}
         </span>
-        <span className="font-mono text-xs tabular-nums text-ink-faint">REC {mm}:{ss}:{ff}</span>
+        <span className="font-mono text-xs tabular-nums text-ink-faint">REC {stamp(tick)}</span>
       </div>
-      {/* document + crops */}
-      <div className="relative m-4 min-h-0 flex-1 overflow-hidden rounded-lg border border-line bg-panel">
+
+      {/* document with line-anchored crops */}
+      <div className="relative mx-4 mt-4 overflow-hidden rounded-lg border border-line bg-panel">
         <div className="border-b border-line px-4 py-2 font-mono text-[11px] tracking-wide text-ink-dim">{d.title}</div>
-        <div className="space-y-2.5 px-4 py-4">
-          {d.lines.map((l) => (
-            <div key={l.label} className="flex items-baseline gap-3 text-sm">
+        <div className="space-y-5 px-4 py-5">
+          {d.lines.map((l, li) => (
+            <div key={l.label} className="relative flex items-baseline gap-3 text-sm">
               <span className="w-28 shrink-0 text-xs text-ink-faint">{l.label}</span>
               <span className={cn("font-mono text-[13px]", l.hot ? "text-ink" : "text-ink-dim")}>{l.value}</span>
+              <AnimatePresence>
+                {d.crops.filter((c) => c.line === li).map((c) => (
+                  <motion.div
+                    key={doc + c.id}
+                    initial={reduce ? { opacity: 0 } : { opacity: 0, scale: 1.04 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.25, delay: reduce ? 0 : 0.3 }}
+                    className={cn("pointer-events-none absolute -inset-x-2 -inset-y-1 rounded-md border-2", CROP_TONE[c.state])}
+                  >
+                    <span className={cn("absolute -top-3 right-2 flex items-center gap-1 whitespace-nowrap rounded px-1.5 py-0.5 font-mono text-[10px]", CHIP_TONE[c.state])}>
+                      <ScanLine className="h-3 w-3" />{c.label} · {c.value}
+                    </span>
+                  </motion.div>
+                ))}
+              </AnimatePresence>
             </div>
           ))}
         </div>
-        <AnimatePresence mode="popLayout">
-          {d.crops.map((c, i) => (
-            <motion.div
-              key={doc + c.id}
-              initial={reduce ? { opacity: 0 } : { opacity: 0, scale: 1.06 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.25, delay: reduce ? 0 : 0.25 + i * 0.2 }}
-              style={c.style}
-              className={cn(
-                "absolute rounded-md border-2",
-                c.state === "bad" && "border-block/90 bg-block/10",
-                c.state === "warn" && "border-warn/90 bg-warn/10",
-                c.state === "ok" && "border-pass/80 bg-pass/10",
-              )}
-            >
-              <span
+      </div>
+
+      {/* frame strip */}
+      <div className="mx-4 mt-3">
+        <p className="mb-2 font-mono text-[10px] uppercase tracking-wide text-ink-faint">Recent frames</p>
+        <div className="grid grid-cols-5 gap-2">
+          {[4, 3, 2, 1, 0].map((ago) => {
+            const f = Math.max(0, tick - ago);
+            return (
+              <div
+                key={ago}
                 className={cn(
-                  "absolute -top-6 left-0 flex items-center gap-1 whitespace-nowrap rounded px-1.5 py-0.5 font-mono text-[10px]",
-                  c.state === "bad" && "bg-block text-white",
-                  c.state === "warn" && "bg-warn text-black",
-                  c.state === "ok" && "bg-pass text-black",
+                  "rounded-md border bg-panel p-2",
+                  ago === 0 ? "border-line-strong" : "border-line opacity-60",
                 )}
               >
-                <ScanLine className="h-3 w-3" />{c.label} · {c.value}
-              </span>
-            </motion.div>
-          ))}
-        </AnimatePresence>
+                <div className="space-y-1">
+                  <div className="h-1.5 w-3/4 rounded-sm bg-white/15" />
+                  <div className="h-1.5 w-full rounded-sm bg-white/10" />
+                  <div className="h-1.5 w-1/2 rounded-sm bg-white/10" />
+                </div>
+                <p className="mt-2 font-mono text-[10px] tabular-nums text-ink-faint">
+                  f-{f} · {stamp(f)}
+                </p>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* detection log */}
+      <div className="mx-4 mb-4 mt-3 min-h-0 flex-1 overflow-hidden rounded-lg border border-line bg-panel p-3">
+        <p className="mb-2 font-mono text-[10px] uppercase tracking-wide text-ink-faint">Detection log</p>
+        <ul className="space-y-1.5 font-mono text-[11px] tabular-nums">
+          <li className="flex justify-between gap-2"><span className="text-ink-dim">page localized · conf 0.98</span><span className="text-ink-faint">{stamp(Math.max(0, tick - 4))}</span></li>
+          <li className="flex justify-between gap-2"><span className="text-ink-dim">deskew + crop {d.crops.length} region{d.crops.length === 1 ? "" : "s"}</span><span className="text-ink-faint">{stamp(Math.max(0, tick - 2))}</span></li>
+          <li className="flex justify-between gap-2"><span className="text-ink-dim">readings redacted for cloud</span><span className="text-ink-faint">{stamp(Math.max(0, tick - 1))}</span></li>
+          <li className="flex justify-between gap-2"><span className="text-pass">verdict streamed to form</span><span className="text-ink-faint">{stamp(tick)}</span></li>
+        </ul>
       </div>
     </div>
   );

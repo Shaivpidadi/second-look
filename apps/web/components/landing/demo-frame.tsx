@@ -31,12 +31,12 @@ export function DemoFrame() {
               <div className="h-1.5 w-1/2 rounded-sm bg-white/15" />
               <div className="h-1.5 w-3/4 rounded-sm bg-white/10" />
             </div>
-            <div className="absolute top-[18%] left-[8%] h-[30%] w-[55%] rounded-[3px] border-[1.5px] border-accent">
+            <div className="absolute top-[18%] left-[8%] h-[30%] w-[55%] rounded-[3px] border-[1.5px] border-accent bg-accent/10">
               <span className="absolute -top-4 left-0 rounded-sm bg-accent px-1 font-mono text-[9px] leading-3.5 text-white">
                 AWB
               </span>
             </div>
-            <div className="absolute right-[10%] bottom-[14%] h-[24%] w-[38%] rounded-[3px] border-[1.5px] border-accent/70">
+            <div className="absolute right-[10%] bottom-[14%] h-[24%] w-[38%] rounded-[3px] border-[1.5px] border-accent/70 bg-accent/[0.07]">
               <span className="absolute -top-4 left-0 rounded-sm bg-accent/90 px-1 font-mono text-[9px] leading-3.5 text-white">
                 label
               </span>

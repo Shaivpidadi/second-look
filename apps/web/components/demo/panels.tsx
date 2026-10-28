@@ -4,6 +4,7 @@ import { motion } from "motion/react";
 import { ArrowRight } from "lucide-react";
 import { Wordmark } from "../brand";
 import { Badge } from "../ui/badge";
+import { formatCost, formatLatency } from "../../lib/format";
 import type { DemoStep, FixtureAudit, FixtureCard } from "./fixtures";
 
 /* ---------------------------------- title --------------------------------- */
@@ -51,7 +52,7 @@ export function DemoFormPanel({ step }: { step: DemoStep }) {
           {step.verdict === "clean" ? "accepted" : step.verdict}
         </Badge>
       </div>
-      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4 slim-scroll">
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4 slim-scroll">
         {step.fields.map((f) => (
           <div key={f.id}>
             <div className="mb-1 flex items-baseline justify-between">
@@ -67,9 +68,9 @@ export function DemoFormPanel({ step }: { step: DemoStep }) {
             >
               {f.typed}
             </div>
-            {f.state === "bad" && (
-              <p className="mt-1 font-mono text-xs text-block">paper holds {f.paper}</p>
-            )}
+            <p className={f.state === "bad" ? "mt-1 font-mono text-xs text-block" : "mt-1 font-mono text-xs text-ink-faint"}>
+              {f.state === "bad" ? `paper holds ${f.paper}` : `paper ${f.paper} · match`}
+            </p>
           </div>
         ))}
         {step.fix && (
@@ -84,6 +85,19 @@ export function DemoFormPanel({ step }: { step: DemoStep }) {
             <span className="font-mono text-ink">{step.claim.bolRef}</span> · qty {step.claim.damagedQty} · amount TBD.
           </div>
         )}
+        <div
+          className={
+            step.verdict === "clean"
+              ? "mt-auto rounded-lg border border-pass/40 bg-pass/10 p-3 text-xs text-ink-dim"
+              : "mt-auto rounded-lg border border-block/40 bg-block/10 p-3 text-xs text-ink-dim"
+          }
+        >
+          {step.verdict === "clean" ? (
+            <>Submit gate: <span className="font-medium text-pass">OPEN</span> — receipt accepted.</>
+          ) : (
+            <>Submit gate: <span className="font-medium text-block">BLOCKED</span> — resolve the flagged field{step.verdict === "mismatch" ? "s" : ""} to submit.</>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -130,9 +144,9 @@ export function DemoSidePanel({
         </ol>
       </div>
       <div className="grid grid-cols-2 gap-3">
-        <Stat label="Latency" value={totalMs >= 1000 ? `${(totalMs / 1000).toFixed(1)}s` : `${Math.round(totalMs)}ms`} />
+        <Stat label="Latency" value={formatLatency(totalMs)} />
         <Stat label="Model calls" value={String(modelCalls)} />
-        <Stat label="Cost" value={`$${totalCost.toFixed(4)}`} />
+        <Stat label="Cost" value={formatCost(totalCost)} />
         <Stat label="Model" value={cards.some((c) => c.model.startsWith("spark")) ? "spark-1.3" : "local"} />
       </div>
       <div className="min-h-0 flex-1 rounded-xl border border-line bg-sunken p-3">

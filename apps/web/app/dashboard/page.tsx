@@ -300,7 +300,7 @@ export default function Dashboard() {
     { label: "Checks run", value: formatCount(runs.length), icon: ClipboardList },
     { label: "Blocked", value: formatCount(blocked), icon: Ban },
     { label: "Warned", value: formatCount(warned), icon: TriangleAlert },
-    { label: "Median verdict latency", value: formatLatency(medianLatency), icon: Activity },
+    { label: "Median latency", value: formatLatency(medianLatency), icon: Activity },
     { label: "Model cost", value: formatCost(totalCost), icon: CheckCircle2 },
   ];
 
@@ -359,7 +359,7 @@ export default function Dashboard() {
             />
           </div>
           <div className="ml-auto flex items-center gap-3">
-            <div className="w-56">
+            <div className="w-64">
               <Select
                 value={sessionId}
                 onChange={(e) => setSessionId(e.target.value)}
@@ -606,6 +606,10 @@ export default function Dashboard() {
                         </TableBody>
                       </Table>
                     </CardContent>
+                    <p className="px-5 pb-4 text-xs text-ink-faint">
+                      † ~$0.46 combined upper bound for both standard real arms
+                      (batch-6 token totals; per-arm split unrecorded).
+                    </p>
                   </Card>
                 )}
               </>

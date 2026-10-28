@@ -129,7 +129,11 @@ function stateBadge(state: string | undefined): React.ReactNode {
 }
 
 export default function ReceivingForm() {
-  const [sessionId] = useState(() => crypto.randomUUID());
+  // Assigned client-side: a render-time UUID would hydrate differently.
+  const [sessionId, setSessionId] = useState("");
+  useEffect(() => {
+    setSessionId(crypto.randomUUID());
+  }, []);
   const [values, setValues] = useState<Record<string, string>>(PREFILL);
   const [streamed, setStreamed] = useState(0);
   const [result, setResult] = useState<SubmitResult | null>(null);
@@ -138,6 +142,7 @@ export default function ReceivingForm() {
   const timers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
   useEffect(() => {
+    if (!sessionId) return;
     const tracker = new LiveVerdictTracker({ debounceMs: 150, onVerdict: setLive });
     const source = new EventSource(
       `/api/verdicts?sessionId=${encodeURIComponent(sessionId)}`,
@@ -223,7 +228,7 @@ export default function ReceivingForm() {
           </Link>
           <div className="flex items-center gap-3">
             <Badge tone="neutral" className="font-mono">
-              session {sessionId.slice(0, 8)}
+              session {sessionId ? sessionId.slice(0, 8) : "…"}
             </Badge>
             <Button size="sm" variant="secondary" asChild>
               <Link href={`/dashboard?session=${sessionId}`}>
@@ -250,7 +255,9 @@ export default function ReceivingForm() {
           </div>
           <div className="flex items-center gap-2 text-[13px] text-ink-dim">
             <Radio className="h-4 w-4 text-pass" aria-hidden />
-            <span className="font-mono tabular">{streamed} typed events streamed</span>
+            <span className="font-mono tabular">
+              {streamed} typed event{streamed === 1 ? "" : "s"} streamed
+            </span>
           </div>
         </div>
 
@@ -446,10 +453,12 @@ export default function ReceivingForm() {
               <CardContent className="text-[13px] leading-relaxed text-ink-dim">
                 <p>
                   Session{" "}
-                  <code className="font-mono text-xs tabular">{sessionId.slice(0, 8)}</code>{" "}
+                  <code className="font-mono text-xs tabular">
+                    {sessionId ? sessionId.slice(0, 8) : "…"}
+                  </code>{" "}
                   ·{" "}
                   <span className="font-mono text-xs tabular">
-                    {streamed} events · live
+                    {streamed} event{streamed === 1 ? "" : "s"} · live
                   </span>
                 </p>
                 <Separator className="my-3" />

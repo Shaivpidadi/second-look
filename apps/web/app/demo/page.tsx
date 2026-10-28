@@ -6,6 +6,7 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { ArrowLeft, ArrowRight, RotateCcw, Radio, Play } from "lucide-react";
 import { Wordmark } from "../../components/brand";
 import { Badge } from "../../components/ui/badge";
+import { formatCost, formatLatency } from "../../lib/format";
 import { DEMO_STEPS, type FixtureAudit, type FixtureCard } from "../../components/demo/fixtures";
 import { PovPanel } from "../../components/demo/pov-panel";
 import { DemoFormPanel, DemoSidePanel, TitleCard } from "../../components/demo/panels";
@@ -13,13 +14,15 @@ import { cn } from "../../lib/cn";
 
 interface LiveSubmit {
   ok: boolean;
-  verdict: string;
-  failures: Array<{ code?: string; field: string; message: string }>;
-  warnings: string[];
-  glimmer: { label: string; confidence: number; elapsedMs: number } | null;
-  spark: { label: string; reasoning: string; proposedFix: unknown; escalateNote: string | null; elapsedMs: number } | null;
-  modelCalls: number;
-  claim: { carrier: string; bolRef: string; damagedQty: number } | null;
+  decision: "ALLOW" | "BLOCK";
+  verdict: { state: "clean" | "mismatch" | "blocked" };
+  failures: Array<{ fieldId: string; rule: string; message: string; fix?: string }>;
+  glimmer: { outcome: "agree" | "disagree"; reason?: string; adapter: string; latencyMs: number; costUsd: number };
+  spark: { explanation: string; adapter: string; latencyMs: number; costUsd: number } | null;
+  escalated: boolean;
+  escalationReasons: string[];
+  modelCalls: Array<{ model: string; adapter: string; outcome: string; latencyMs: number; costUsd: number }>;
+  claim: { carrier: string; bolRef: string; damagedQty: number | null; amount: string } | null;
 }
 
 function LiveCard({ card, i }: { card: FixtureCard; i: number }) {
@@ -45,7 +48,7 @@ function LiveCard({ card, i }: { card: FixtureCard; i: number }) {
       <p className="mt-1.5 text-sm font-medium text-ink">{card.title}</p>
       <p className="mt-0.5 line-clamp-2 text-xs leading-relaxed text-ink-dim">{card.body}</p>
       <p className="mt-2 font-mono text-[10px] tabular-nums text-ink-faint">
-        {card.model} · {card.latencyMs >= 1000 ? `${(card.latencyMs / 1000).toFixed(1)}s` : `${Math.round(card.latencyMs)}ms`} · ${card.costUsd === 0 ? "$0" : `$${card.costUsd.toFixed(4)}`}
+        {card.model} · {formatLatency(card.latencyMs)} · {formatCost(card.costUsd)}
       </p>
     </motion.div>
   );
@@ -87,54 +90,47 @@ function DemoInner() {
     setLiveNote("calling /api/submit …");
     const s = DEMO_STEPS[i];
     try {
-      // Build a typed form: ok fields from typed values, bad fields keep the typo.
-      const typed: Record<string, Record<string, unknown>> = {};
-      for (const f of s.fields) {
-        const [doc, field] = f.id.split(".");
-        typed[doc] ??= {};
-        const n = Number(f.typed);
-        typed[doc][field] = f.typed === "" ? "" : Number.isNaN(n) || /[^0-9.\-]/.test(f.typed) ? f.typed : n;
-      }
+      // Flat typed values keyed by field id, exactly like the /form page sends.
+      const values: Record<string, string> = { "bol.bolNumber": "BOL-36537779" };
+      for (const f of s.fields) values[f.id] = f.typed;
       const res = await fetch("/api/submit", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ typed, expected: {}, sessionId: "demo" }),
+        body: JSON.stringify({ sessionId: "demo", values }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const r = (await res.json()) as LiveSubmit;
       const liveCards: FixtureCard[] = [];
       for (const f of r.failures) {
         liveCards.push({
-          from: "validators", title: f.code ?? "Blocked", body: `${f.field}: ${f.message}`,
+          from: "validators", title: f.rule, body: `${f.fieldId}: ${f.message}`,
           tone: "block", model: "validators", latencyMs: 0.5, costUsd: 0,
         });
       }
-      if (r.glimmer) {
-        liveCards.push({
-          from: "glimmer", title: `Local pass: ${r.glimmer.label}`,
-          body: `confidence ${(r.glimmer.confidence * 100).toFixed(0)}%`,
-          tone: r.glimmer.label === "match" ? "pass" : "warn",
-          model: "glimmer", latencyMs: r.glimmer.elapsedMs, costUsd: 0,
-        });
-      }
+      liveCards.push({
+        from: "glimmer", title: `Local pass: ${r.glimmer.outcome}`,
+        body: r.glimmer.reason ?? "Tier-1 vision pass over the typed values.",
+        tone: r.glimmer.outcome === "agree" ? "pass" : "warn",
+        model: `glimmer · ${r.glimmer.adapter}`, latencyMs: r.glimmer.latencyMs, costUsd: r.glimmer.costUsd,
+      });
       if (r.spark) {
         liveCards.push({
-          from: "spark", title: `Spark: ${r.spark.label}`,
-          body: r.spark.escalateNote ?? r.spark.reasoning.slice(0, 120),
-          tone: r.spark.label === "block" ? "block" : r.spark.label === "flag" ? "warn" : "pass",
-          model: "muse-spark", latencyMs: r.spark.elapsedMs, costUsd: 0,
+          from: "spark", title: "Spark escalation",
+          body: r.spark.explanation.slice(0, 140),
+          tone: "info",
+          model: `spark · ${r.spark.adapter}`, latencyMs: r.spark.latencyMs, costUsd: r.spark.costUsd,
         });
       }
       if (r.claim) {
         liveCards.push({
           from: "claim", title: "Claim drafted",
-          body: `${r.claim.carrier} · ${r.claim.bolRef} · qty ${r.claim.damagedQty}`,
+          body: `${r.claim.carrier || "carrier?"} · ${r.claim.bolRef || "ref?"} · qty ${r.claim.damagedQty ?? "?"} · ${r.claim.amount}`,
           tone: "info", model: "template", latencyMs: 3, costUsd: 0,
         });
       }
-      if (r.ok) {
+      if (r.decision === "ALLOW") {
         liveCards.push({
-          from: "submit", title: "Accepted", body: r.warnings.join(" ") || "Receipt accepted.",
+          from: "submit", title: "Accepted", body: "Receipt accepted.",
           tone: "pass", model: "gate", latencyMs: 1, costUsd: 0,
         });
       }
