@@ -34,6 +34,11 @@ export {
   type KeyframeOptions,
 } from "./frames.ts";
 export {
+  decodeJpegToGray,
+  encodeGrayToJpeg,
+  encodeRgbToJpeg,
+} from "./jpeg.ts";
+export {
   callBudgetLimit,
   DEFAULT_CALL_BUDGET,
   getCallStats,
