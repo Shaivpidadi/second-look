@@ -1,4 +1,42 @@
-# Status — Batch 17 done: Android client scaffold, green builds (Oct 28)
+# Status — Batch 18 done: glasses frames produce verdicts (Oct 28)
+
+## Batch 18 done
+
+The server now judges glasses frames: `frame.pov` data URLs validate at
+the boundary (JPEG/PNG mime, strict base64, 2 MB decoded cap, clear
+4xx), decode once with a new dependency-free baseline JPEG codec,
+dedupe by dhash (under 8 bits), throttle to 10 model calls per rolling
+minute per session with a visible `throttled` verdict, and judge kept
+keyframes (Spark boxes, abstention gate, judge) onto the same SSE
+stream. Text events work unchanged and never store frame bytes.
+
+- JPEG codec verified against real third-party files, not just its own
+  encoder: sips-encoded corpus images decode with mean abs err near 1.1
+  (44ms for 1000x1400); restart intervals and gapped Huffman tables are
+  handled; a small sips fixture with golden hashes guards regressions.
+- Live proof, 4 real calls total: a fixture BOL JPEG posted through the
+  frame handler returned clean in 6.6s; the same frame with a corrupted
+  typed container number returned mismatch in 7.6s, reading paper
+  CSQU3721043 exactly and proposing it as the fix. Two calls each
+  (boxes + judge). Both over the 5s clip target; that target covers the
+  stub/cached clip path, and production LOW-stream frames are smaller
+  than the 1000x1400 proof image (unmeasured). The proof called
+  handleFramePost directly because next/server only resolves inside
+  Next; `next build` covers the route adapter.
+- Single-frame verdicts cover visible fields only: the BOL proof frame
+  stayed clean while the form's AWB error lives in another document.
+  Cross-frame accumulation is future work.
+- Android: YUV layout detection in :core (NV21 vs I420 packed plus
+  strided three-plane, 9 unit tests) replaces the NV21 assumption; the
+  SDK exposes no layout metadata (verified by inspecting mwdat-camera
+  1.0.1). Frames post as data URLs. CameraX phone fallback behind a
+  source toggle (2 to 7 fps live stepper), chroma-swap override, debug
+  cleartext config for LAN dev (release verified HTTPS-only).
+
+Batch spend: 4 model API calls (2 per proof frame).
+`pnpm -r test`: 356 pass, 0 fail. `pnpm -r typecheck`: pass.
+`next build`: pass. `pnpm check:submit`: clean. Android:
+`:core:test` 22 pass, debug + release APKs assemble.
 
 ## Batch 17 done
 
@@ -466,6 +504,9 @@ tokens, ~$0.91 total (E2E ~$0.08, vision ~$0.83).
 
 Needs Shaishav (human, before 6pm ET Nov 4):
 
+- Run the Android live smoke: docs/ANDROID.md ends with the 5-step
+  hand checklist (install APK, glasses camera access, Mac server,
+  base URL, first pairing test).
 - Record the backup POV clips + screen segments in docs/DEMO.md
   (glasses developer mode + pairing, or phone POV fallback).
 - Shoot + edit the 3-min video; overlay the measured numbers.

@@ -172,3 +172,12 @@ Top 5 risks, each with a ≤30-min spike:
   `:core:test` green, debug + release APKs assemble,
   docs/ANDROID.md written. 0 calls. Screens unchanged: no
   new reshoot.
+- [x] Batch 18 (Oct 28): server judges frame.pov data URLs
+  (validate, dedupe, throttle with visible throttled state,
+  Spark boxes + judge on the SSE stream), dependency-free
+  JPEG codec verified against sips files, live proof 4
+  calls (clean 6.6s, mismatch 7.6s with exact paper fix),
+  :core YUV detection + data URLs, CameraX phone fallback
+  with source/fps/chroma toggles, debug LAN cleartext
+  (release HTTPS-only), docs/ANDROID.md with Shaishav
+  checklist. 4 calls. Screens unchanged: no new reshoot.
