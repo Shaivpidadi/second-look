@@ -5,7 +5,7 @@ import { ArrowRight } from "lucide-react";
 import { Wordmark } from "../brand";
 import { Badge } from "../ui/badge";
 import { formatCost, formatLatency } from "../../lib/format";
-import { actionLabel, fieldLabel } from "../../lib/fields";
+import { actionLabel, fieldLabel, verdictLabel } from "../../lib/fields";
 import type { DemoStep, FixtureAudit, FixtureCard } from "./fixtures";
 
 /* ---------------------------------- title --------------------------------- */
@@ -50,7 +50,7 @@ export function DemoFormPanel({ step }: { step: DemoStep }) {
       <div className="flex items-center justify-between border-b border-line px-4 py-2">
         <span className="text-xs font-medium text-ink-dim">Receiving form · typed values</span>
         <Badge tone={step.verdict === "clean" ? "pass" : step.verdict === "blocked" ? "block" : "warn"}>
-          {step.verdict === "clean" ? "accepted" : step.verdict}
+          {verdictLabel(step.verdict)}
         </Badge>
       </div>
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4 slim-scroll">
@@ -95,7 +95,7 @@ export function DemoFormPanel({ step }: { step: DemoStep }) {
           {step.verdict === "clean" ? (
             <>Submit gate: <span className="font-medium text-pass">OPEN</span>. Receipt accepted.</>
           ) : (
-            <>Submit gate: <span className="font-medium text-block">BLOCKED</span>. Resolve the flagged field{step.verdict === "mismatch" ? "s" : ""} to submit.</>
+            <>Submit gate: <span className="font-medium text-block">BLOCKED</span>. Resolve the failed check{step.verdict === "mismatch" ? "s" : ""} to submit.</>
           )}
         </div>
       </div>
@@ -147,7 +147,7 @@ export function DemoSidePanel({
         <Stat label="Latency" value={formatLatency(totalMs)} />
         <Stat label="Model calls" value={String(modelCalls)} />
         <Stat label="Cost" value={formatCost(totalCost)} />
-        <Stat label="Model" value={cards.some((c) => c.model.startsWith("spark")) ? "spark-1.3" : "local"} />
+        <Stat label="Model" value={cards.some((c) => c.model.startsWith("spark")) ? "muse-spark-1.3" : "local"} />
       </div>
       <div className="min-h-0 flex-1 rounded-xl border border-line bg-sunken p-3">
         <p className="mb-2 px-1 text-xs font-medium text-ink-dim">Audit trail</p>
@@ -164,7 +164,7 @@ export function DemoSidePanel({
                 <span className="font-mono text-[11px] text-ink">{actionLabel(a.action)}</span>
                 <span className="font-mono text-[10px] text-ink-faint">{a.moment}</span>
               </div>
-              <div className="mt-0.5 font-mono text-[10px] text-ink-faint">{fieldLabel(a.field)} · {a.verdict}</div>
+              <div className="mt-0.5 font-mono text-[10px] text-ink-faint">{fieldLabel(a.field)} · {verdictLabel(a.verdict)}</div>
             </li>
           ))}
         </ul>

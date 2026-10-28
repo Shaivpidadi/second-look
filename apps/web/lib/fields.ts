@@ -24,6 +24,18 @@ function prettifySegment(segment: string): string {
   return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
+/**
+ * The one status vocabulary used on every screen, badge, and filter:
+ * Pass, Warn, Blocked, Needs human. Unknown verdicts are capitalized.
+ */
+export function verdictLabel(verdict: string): string {
+  if (verdict === "clean") return "Pass";
+  if (verdict === "mismatch") return "Warn";
+  if (verdict === "blocked") return "Blocked";
+  if (verdict === "needs-human") return "Needs human";
+  return verdict.charAt(0).toUpperCase() + verdict.slice(1);
+}
+
 /** Visible label for a dotted field id. Unknown ids are prettified. */
 export function fieldLabel(fieldId: string): string {
   if (fieldId === "*") return "Receipt";

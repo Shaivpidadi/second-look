@@ -22,7 +22,7 @@ const FEATURES = [
   {
     n: "03",
     title: "Blocks the mistake before submit",
-    body: "Mismatches block the submit gate with the paper value proposed as the fix. Damage notes become claim drafts. Every decision lands in an append-only audit log.",
+    body: "Failed checks block the submit gate with the paper value proposed as the fix. Damage notes become claim drafts. Every decision lands in an append-only audit log.",
     icon: OctagonX,
   },
 ];

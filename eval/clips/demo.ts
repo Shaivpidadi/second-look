@@ -35,6 +35,15 @@ export function formatBeat(beat: DemoBeat): string {
   return `[${beat.at}] ${beat.line}`;
 }
 
+/** Display word for a verdict state: Pass, Warn, Blocked, Needs human. */
+function verdictWord(state: string): string {
+  if (state === "clean") return "Pass";
+  if (state === "mismatch") return "Warn";
+  if (state === "blocked") return "Blocked";
+  if (state === "needs-human") return "Needs human";
+  return state;
+}
+
 export interface DemoScenario {
   label: string;
   clip: string;
@@ -71,7 +80,7 @@ export const DEMO_SCENARIOS: DemoScenario[] = [
         (f) => f.fieldId === "awb.awbNumber",
       );
       return [
-        `verdict: BLOCKED (AWB check digit invalid, ${(run.totalLatencyMs / 1000).toFixed(1)}s end to end)`,
+        `verdict: Blocked (AWB check digit invalid, ${(run.totalLatencyMs / 1000).toFixed(1)}s end to end)`,
         fix
           ? `fix proposed: typed -> paper ${fix.paperValue} (paper holds ${paper["awb.awbNumber"]})`
           : "fix proposed: none this run (live-model text varies; verdict is deterministic)",
@@ -94,7 +103,7 @@ export const DEMO_SCENARIOS: DemoScenario[] = [
           })
         : null;
       return [
-        `verdict: FLAG (invoice ${paper["invoice.totalQty"]} vs packing ${paper["packing.totalQty"]}, ${(run.totalLatencyMs / 1000).toFixed(1)}s end to end)`,
+        `verdict: Warn (invoice ${paper["invoice.totalQty"]} vs packing ${paper["packing.totalQty"]}, ${(run.totalLatencyMs / 1000).toFixed(1)}s end to end)`,
         draft
           ? `claim drafted: ${draft.carrier ? `${draft.carrier} ` : ""}${draft.bolRef}, damagedQty=${draft.damagedQty}`
           : "claim drafted: none",
@@ -147,7 +156,7 @@ export async function runDemo(options: DemoOptions): Promise<boolean> {
             at: stamp(performance.now() - started),
             line:
               `partial:${verdict.phase} t=${verdict.frame.timestampSec.toFixed(1)}s ` +
-              `verdict=${verdict.frame.tiered.verdict.state} ` +
+              `verdict=${verdictWord(verdict.frame.tiered.verdict.state)} ` +
               `spark=${verdict.frame.tiered.spark ? (verdict.sparkCached ? "cached" : "live") : "none"}`,
           }),
         );

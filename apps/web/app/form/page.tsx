@@ -19,7 +19,7 @@ import { Separator } from "../../components/ui/separator";
 import { Skeleton } from "../../components/ui/skeleton";
 import { StatusDot, type StatusTone } from "../../components/ui/status-dot";
 import { formatCost } from "../../lib/format";
-import { fieldLabel } from "../../lib/fields";
+import { fieldLabel, verdictLabel } from "../../lib/fields";
 import { cn } from "../../lib/cn";
 import { LiveVerdictTracker, type LiveVerdictMessage } from "../../lib/live-verdict";
 
@@ -123,10 +123,9 @@ function stateTone(state: string | undefined): StatusTone {
 }
 
 function stateBadge(state: string | undefined): React.ReactNode {
-  if (state === "clean") return <Badge tone="pass">Clean</Badge>;
-  if (state === "mismatch") return <Badge tone="warn">Mismatch</Badge>;
-  if (state === "blocked") return <Badge tone="block">Blocked</Badge>;
-  return <Badge tone="neutral">Idle</Badge>;
+  if (state === undefined) return <Badge tone="neutral">Idle</Badge>;
+  const tone = state === "clean" ? "pass" : state === "mismatch" ? "warn" : "block";
+  return <Badge tone={tone}>{verdictLabel(state)}</Badge>;
 }
 
 export default function ReceivingForm() {

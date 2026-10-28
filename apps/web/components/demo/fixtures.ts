@@ -105,7 +105,7 @@ export const DEMO_STEPS: DemoStep[] = [
       {
         from: "validators",
         title: "Cross-doc conflict",
-        body: "Invoice 363 vs packing 365. Flagged for review.",
+        body: "Invoice 363 vs packing 365. Warned for review.",
         tone: "warn",
         model: "validators",
         latencyMs: 0.6,
@@ -114,7 +114,7 @@ export const DEMO_STEPS: DemoStep[] = [
       {
         from: "spark",
         title: "Escalation note",
-        body: "No typo here. The source documents disagree, so hold the receipt and confirm with the supplier.",
+        body: "No typo here. The source documents disagree, so hold the receipt.",
         tone: "info",
         model: "spark · muse-spark-1.3",
         latencyMs: 3210,

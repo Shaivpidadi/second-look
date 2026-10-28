@@ -33,7 +33,7 @@ import {
   TableRow,
 } from "../../components/ui/table";
 import { formatCost, formatCount, formatLatency, formatTime } from "../../lib/format";
-import { actionLabel, fieldLabel } from "../../lib/fields";
+import { actionLabel, fieldLabel, verdictLabel } from "../../lib/fields";
 import {
   groupRuns,
   selectRunStats,
@@ -87,7 +87,7 @@ const NAV: Array<{ view: View; label: string; icon: typeof LayoutDashboard }> = 
 ];
 
 const EVAL_ROWS = [
-  { arm: "check-digit-only", split: "hard 40", precision: "100.0%", recall: "39.4%", latency: "0ms", cost: "$0" },
+  { arm: "check-digit-only", split: "hard 40", precision: "100.0%", recall: "39.4%", latency: "<1ms", cost: "$0" },
   { arm: "single-model-real", split: "hard 40", precision: "100.0%", recall: "100.0%", latency: "1849ms", cost: "$0.086" },
   { arm: "tiered-real", split: "hard 40", precision: "100.0%", recall: "100.0%", latency: "4438ms", cost: "$0.128" },
   { arm: "vision-real", split: "hard 40", precision: "100.0%", recall: "100.0%", latency: "2857ms", cost: "$0.61" },
@@ -260,7 +260,7 @@ export default function Dashboard() {
     : runs;
   const visibleEntries = queryText
     ? entries.filter((entry) =>
-        `${entry.ts} ${entry.fieldId} ${entry.typedValue ?? ""} ${entry.verdict} ${entry.action}`
+        `${entry.ts} ${entry.fieldId} ${entry.typedValue ?? ""} ${entry.verdict} ${verdictLabel(entry.verdict)} ${entry.action}`
           .toLowerCase()
           .includes(queryText),
       )
@@ -287,7 +287,7 @@ export default function Dashboard() {
   const kpis = [
     { label: "Checks run", value: formatCount(runs.length), icon: ClipboardList },
     { label: "Blocked", value: formatCount(stats.blocked), icon: Ban },
-    { label: "Warned", value: formatCount(stats.warn), icon: TriangleAlert },
+    { label: "Warn", value: formatCount(stats.warn), icon: TriangleAlert },
     { label: "p50 latency", value: formatLatency(stats.medianLatencyMs), icon: Activity },
     { label: "Model cost", value: formatCost(stats.totalCostUsd), icon: CheckCircle2 },
   ];
@@ -575,7 +575,7 @@ export default function Dashboard() {
                                 </TableCell>
                                 <TableCell>
                                   <Badge tone={verdictTone(entry.verdict)}>
-                                    {entry.verdict}
+                                    {verdictLabel(entry.verdict)}
                                   </Badge>
                                 </TableCell>
                                 <TableCell
@@ -695,7 +695,7 @@ function ChecksTable({
               className="cursor-pointer hover:bg-white/[0.03]"
             >
               <TableCell>
-                <Badge tone={verdictTone(run.verdict)}>{run.verdict}</Badge>
+                <Badge tone={verdictTone(run.verdict)}>{verdictLabel(run.verdict)}</Badge>
               </TableCell>
               <TableCell className="text-ink-dim">
                 {first ? docType(first.fieldId) : "n/a"}
@@ -729,7 +729,7 @@ function CheckDrawer({ run, onClose }: { run: CheckRun; onClose: () => void }) {
       />
       <aside className="absolute top-0 right-0 flex h-full w-full max-w-md flex-col border-l border-line bg-panel">
         <div className="flex items-center gap-3 border-b border-line px-5 py-4">
-          <Badge tone={verdictTone(run.verdict)}>{run.verdict}</Badge>
+          <Badge tone={verdictTone(run.verdict)}>{verdictLabel(run.verdict)}</Badge>
           <span className="font-mono text-xs text-ink-faint tabular">{formatTime(run.ts)}</span>
           <Button size="sm" variant="ghost" className="ml-auto !px-2" onClick={onClose}>
             <X className="h-4 w-4" aria-hidden />
@@ -878,7 +878,7 @@ function LatencyChart({ runs }: { runs: CheckRun[] }) {
       {ordered.map((run) => (
         <div
           key={run.ts}
-          title={`${run.verdict} · ${formatLatency(run.latencyMs)}`}
+          title={`${verdictLabel(run.verdict)} · ${formatLatency(run.latencyMs)}`}
           style={{ height: `${Math.max(6, (run.latencyMs / max) * 100)}%` }}
           className={cn("min-w-0 flex-1 rounded-sm", VERDICT_BAR[run.verdict] ?? "bg-white/15")}
         />
