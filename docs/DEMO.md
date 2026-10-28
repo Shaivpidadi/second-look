@@ -14,6 +14,29 @@ Stub mode is offline and deterministic (exit 1 on verdict mismatch).
 `--models real` needs `.env` and spends ~10 calls (~$0.03) per replay.
 `--pace` sets ms between narrated beats for screen recording.
 
+## The /demo record screen
+
+A 1920x1080 screen-recordable page: glasses POV with animated crop
+boxes (left), typed receiving values (middle), streaming verdict
+cards (bottom), moments + latency/calls/cost/model + audit trail
+(right). Four keyboard-stepped moments: AWB typo block, invoice vs
+packing mismatch, handwritten POD claim, clean submit.
+
+```sh
+pnpm --filter @second-look/web build
+pnpm --filter @second-look/web start --port 3100
+# open http://127.0.0.1:3100/demo
+```
+
+- Title card auto-advances after 10s (or click / press Right).
+- `Right` next moment, `Left` back, `R` reset, or click a moment.
+- `?record=1` hides the cursor and the top chrome for clean captures.
+- Fixture replay by default (deterministic, offline); "Go live"
+  posts each moment's values to the real `/api/submit`.
+- Stills: `docs/shots/demo-title-1920.png` and
+  `docs/shots/demo-step{1,2,3,4}-1920.png`, captured by
+  `apps/web/scripts/shots.ts` (Playwright, system Chrome).
+
 ## Script
 
 ### 0:00-0:20 — Cold open (problem)
