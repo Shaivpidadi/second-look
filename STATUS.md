@@ -1,4 +1,4 @@
-# Status — Batch 18 done: glasses frames produce verdicts (Oct 28)
+# Status: Batch 18 done - glasses frames produce verdicts (Oct 28)
 
 ## Batch 18 done
 
