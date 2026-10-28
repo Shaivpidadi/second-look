@@ -80,7 +80,11 @@ class SpeakDebounce(private val windowMs: Long = 30_000) {
     }
 
     fun shouldSpeak(verdict: LiveVerdict, nowMs: Long): Boolean {
-        val key = keyFor(verdict)
+        return shouldSpeakKey(keyFor(verdict), nowMs)
+    }
+
+    /** Generic check-and-mark for non-verdict lines (failure states). */
+    fun shouldSpeakKey(key: String, nowMs: Long): Boolean {
         if (key == lastKey && nowMs - lastMs < windowMs) return false
         lastKey = key
         lastMs = nowMs

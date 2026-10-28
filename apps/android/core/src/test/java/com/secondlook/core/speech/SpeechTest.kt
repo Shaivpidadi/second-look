@@ -105,6 +105,14 @@ class SpeechTest {
     }
 
     @Test
+    fun `debounce also gates raw keys`() {
+        val debounce = SpeakDebounce(windowMs = 30_000)
+        assertTrue(debounce.shouldSpeakKey("failure:TIMEOUT", 0))
+        assertTrue(!debounce.shouldSpeakKey("failure:TIMEOUT", 1))
+        assertTrue(debounce.shouldSpeakKey("failure:TIMEOUT", 30_000))
+    }
+
+    @Test
     fun `debounce keys on state plus failures`() {
         val debounce = SpeakDebounce(windowMs = 30_000)
         val first = verdict("mismatch", listOf("bol.containerNumber" to "field_match"))

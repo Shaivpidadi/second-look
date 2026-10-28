@@ -48,7 +48,7 @@ fun MainScreen(viewModel: SessionViewModel, activity: Activity) {
 @Composable
 fun RegistrationScreen(viewModel: SessionViewModel, activity: Activity) {
     val granted by viewModel.cameraGranted.collectAsState()
-    val error by viewModel.error.collectAsState()
+    val failure by viewModel.failure.collectAsState()
     var url by remember { mutableStateOf(viewModel.serverUrl) }
     Column(
         modifier = Modifier.fillMaxSize().padding(20.dp),
@@ -78,9 +78,9 @@ fun RegistrationScreen(viewModel: SessionViewModel, activity: Activity) {
             Button(onClick = { viewModel.register(activity) }) { Text("Register") }
             OutlinedButton(onClick = { viewModel.refreshPermission() }) { Text("Check camera") }
         }
-        error?.let {
-            Text(it, color = MaterialTheme.colorScheme.error)
-            OutlinedButton(onClick = { viewModel.clearError() }) { Text("Dismiss") }
+        failure?.let {
+            Text(it.detail, color = MaterialTheme.colorScheme.error)
+            OutlinedButton(onClick = { viewModel.clearFailure() }) { Text("Dismiss") }
         }
         MockPanel()
     }
@@ -93,7 +93,7 @@ fun CameraScreen(viewModel: SessionViewModel) {
     val preview by viewModel.preview.collectAsState()
     val verdicts by viewModel.verdicts.collectAsState()
     val frames by viewModel.framesPosted.collectAsState()
-    val error by viewModel.error.collectAsState()
+    val failure by viewModel.failure.collectAsState()
     val usePhone by viewModel.usePhoneCamera.collectAsState()
     val fps by viewModel.streamFps.collectAsState()
     val swapped by viewModel.chromaSwapped.collectAsState()
@@ -135,9 +135,9 @@ fun CameraScreen(viewModel: SessionViewModel) {
             Button(onClick = { viewModel.start() }, enabled = !streaming) { Text("Start") }
             OutlinedButton(onClick = { viewModel.stop() }, enabled = streaming) { Text("Stop") }
         }
-        error?.let {
-            Text(it, color = MaterialTheme.colorScheme.error)
-            OutlinedButton(onClick = { viewModel.clearError() }) { Text("Dismiss") }
+        failure?.let {
+            Text(it.detail, color = MaterialTheme.colorScheme.error)
+            OutlinedButton(onClick = { viewModel.clearFailure() }) { Text("Dismiss") }
         }
         Text("Verdicts", style = MaterialTheme.typography.titleMedium)
         VerdictList(verdicts)

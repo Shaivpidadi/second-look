@@ -26,14 +26,24 @@ import com.secondlook.android.frames.YuvJpeg
 import com.secondlook.core.api.FrameEvent
 import com.secondlook.core.api.LiveVerdict
 import com.secondlook.core.api.SecondLookApi
+import com.secondlook.core.session.FailureKind
+import com.secondlook.core.session.FailureState
+import com.secondlook.core.session.RetryPolicy
 import com.secondlook.core.session.SeenIds
 import com.secondlook.core.session.SessionMemory
+import com.secondlook.core.session.glassesFailure
+import com.secondlook.core.session.lowQuality
+import com.secondlook.core.session.networkFailure
+import com.secondlook.core.session.permissionFailure
+import com.secondlook.core.session.phoneCameraFailure
 import com.secondlook.core.speech.SpeakDebounce
 import com.secondlook.core.speech.phraseFor
 import java.time.Instant
 import java.util.UUID
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -100,8 +110,8 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
     private val _framesPosted = MutableStateFlow(0)
     val framesPosted: StateFlow<Int> = _framesPosted.asStateFlow()
 
-    private val _error = MutableStateFlow<String?>(null)
-    val error: StateFlow<String?> = _error.asStateFlow()
+    private val _failure = MutableStateFlow<FailureState?>(null)
+    val failure: StateFlow<FailureState?> = _failure.asStateFlow()
 
     private val _usePhoneCamera = MutableStateFlow(false)
     val usePhoneCamera: StateFlow<Boolean> = _usePhoneCamera.asStateFlow()
@@ -141,7 +151,7 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
         }
         viewModelScope.launch {
             Wearables.registrationErrorStream.collect { error ->
-                setError("registration: ${error.toString()}")
+                setFailure(glassesFailure("registration: ${error.toString()}", "Glasses pairing failed."))
             }
         }
         refreshPermission()
@@ -159,7 +169,9 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch {
             Wearables.checkPermissionStatus(Permission.CAMERA).fold(
                 onSuccess = { status -> _cameraGranted.value = status is PermissionStatus.Granted },
-                onFailure = { error, _ -> setError("permission check: ${error.toString()}") },
+                onFailure = { error, _ ->
+                    setFailure(glassesFailure("permission check: ${error.toString()}", null))
+                },
             )
         }
     }
@@ -194,14 +206,27 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
             val api = SecondLookApi(serverUrl)
             jobs = listOf(
                 launch {
-                    try {
-                        // SSE is the backup channel: POST responses carry the
-                        // same verdicts, and ingest dedupes by verdict id.
-                        api.verdicts(sessionId).collect { verdict ->
-                            ingestVerdict(verdict)
+                    // SSE is the backup channel: POST responses carry the
+                    // same verdicts, and ingest dedupes by verdict id.
+                    // Reconnects with backoff; Stop/Start recovers from a
+                    // latched failure.
+                    val retry = RetryPolicy()
+                    var attempt = 0
+                    while (true) {
+                        try {
+                            api.verdicts(sessionId).collect { verdict ->
+                                ingestVerdict(verdict)
+                            }
+                            break
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            val failure = networkFailure(e)
+                            setFailure(failure)
+                            if (!retry.shouldRetry(failure, attempt)) break
+                            delay(retry.delayForAttempt(attempt))
+                            attempt++
                         }
-                    } catch (e: Exception) {
-                        setError("verdicts: ${e.message}")
                     }
                 },
             )
@@ -243,22 +268,25 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
         _sessionState.value = DeviceSessionState.STOPPED.name
     }
 
-    fun clearError() {
-        _error.value = null
+    fun clearFailure() {
+        _failure.value = null
     }
 
     private suspend fun startGlasses(api: SecondLookApi): Boolean {
-        if (!ensureCameraPermission()) return false
+        if (!ensureCameraPermission()) {
+            setFailure(permissionFailure(phone = false))
+            return false
+        }
         val newSession = Wearables.createSession(AutoDeviceSelector()).getOrNull()
         if (newSession == null) {
-            setError("createSession failed")
+            setFailure(glassesFailure("createSession failed. Check pairing, then tap Start.", "Glasses not reachable."))
             return false
         }
         session = newSession
         // Observe state and errors BEFORE start(), per the SDK guide.
         jobs = jobs + viewModelScope.launch {
             newSession.errors.collect { error ->
-                setError("session: ${error.name}")
+                setFailure(glassesFailure("session: ${error.name}"))
             }
         } + viewModelScope.launch {
             newSession.state.collect { state ->
@@ -271,17 +299,20 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
     }
 
     private suspend fun startPhone(api: SecondLookApi): Boolean {
-        if (!ensurePhonePermission()) return false
+        if (!ensurePhonePermission()) {
+            setFailure(permissionFailure(phone = true))
+            return false
+        }
         val owner = phoneLifecycleOwner
         if (owner == null) {
-            setError("phone camera needs the activity lifecycle")
+            setFailure(phoneCameraFailure("phone camera needs the activity lifecycle", null))
             return false
         }
         val source = PhoneCameraSource(
             getApplication(),
             owner,
             onJpeg = { jpeg -> viewModelScope.launch { postJpeg(api, jpeg) } },
-            onError = { message -> setError(message) },
+            onError = { message -> setFailure(phoneCameraFailure(message)) },
         )
         source.fps = _streamFps.value
         source.quality = JPEG_QUALITY
@@ -302,7 +333,7 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
         }
         val requester = phonePermissionRequester
         if (requester == null) {
-            setError("phone camera permission request needs the activity")
+            setFailure(phoneCameraFailure("phone camera permission request needs the activity", null))
             return false
         }
         return requester()
@@ -334,7 +365,7 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
         if (_cameraGranted.value == true) return true
         val checked = Wearables.checkPermissionStatus(Permission.CAMERA).getOrNull()
         if (checked == null) {
-            setError("permission check failed")
+            setFailure(glassesFailure("permission check failed", null))
             return false
         }
         if (checked is PermissionStatus.Granted) {
@@ -343,7 +374,7 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
         }
         val requester = permissionRequester
         if (requester == null) {
-            setError("camera permission request needs the activity")
+            setFailure(glassesFailure("camera permission request needs the activity", null))
             return false
         }
         val result = requester(Permission.CAMERA)
@@ -358,20 +389,20 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
             StreamConfiguration(videoQuality = VideoQuality.LOW, frameRate = STREAM_FPS),
         ).getOrNull()
         if (attached == null) {
-            setError("addCamera failed")
+            setFailure(glassesFailure("addCamera failed. Tap Stop, then Start to retry."))
             return
         }
         camera = attached
         jobs = jobs + viewModelScope.launch {
             attached.stream.errorStream.collect { error ->
-                setError("stream: ${error.name}")
+                setFailure(glassesFailure("stream: ${error.name}"))
             }
         }
         jobs = jobs + viewModelScope.launch(Dispatchers.IO) {
             attached.stream.videoStream.collect { frame -> onFrame(frame, api) }
         }
         attached.stream.start().onFailure { error, _ ->
-            setError("stream.start: ${error.toString()}")
+            setFailure(glassesFailure("stream.start: ${error.toString()}"))
         }
         _streaming.value = true
     }
@@ -413,8 +444,18 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
             sessionMemory.learn(posted.document, posted.readings)
             posted.verdicts.forEach { ingestVerdict(it) }
             _framesPosted.update { it + 1 }
+            clearNetworkFailure()
         } catch (e: Exception) {
-            setError("upload: ${e.message}")
+            setFailure(networkFailure(e))
+        }
+    }
+
+    /** A good upload clears a latched network failure. */
+    private fun clearNetworkFailure() {
+        when (_failure.value?.kind) {
+            FailureKind.SERVER_UNREACHABLE, FailureKind.TIMEOUT, FailureKind.SERVER_ERROR ->
+                _failure.value = null
+            else -> Unit
         }
     }
 
@@ -426,10 +467,31 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
         if (!seenVerdictIds.add(verdict.id)) return
         _verdicts.update { (listOf(verdict) + it).take(MAX_VERDICTS) }
         maybeSpeak(verdict)
+        trackQuality(verdict)
     }
 
-    private fun setError(message: String) {
-        Log.w(TAG, message)
-        _error.value = message
+    /**
+     * The abstention gate doubles as the quality detector: unreadable
+     * frames ask the user to hold still, and the state self-clears on
+     * the next readable verdict.
+     */
+    private fun trackQuality(verdict: LiveVerdict) {
+        val unreadable = verdict.failures.any { it.rule == "unreadable" || it.rule == "low_confidence" }
+        if (verdict.state == "needs-human" && unreadable) {
+            setFailure(lowQuality())
+        } else if (_failure.value?.kind == FailureKind.LOW_QUALITY) {
+            _failure.value = null
+        }
+    }
+
+    private fun setFailure(state: FailureState) {
+        Log.w(TAG, state.detail)
+        _failure.value = state
+        val line = state.spokenLine
+        if (line != null && _speakVerdicts.value &&
+            speakDebounce.shouldSpeakKey("failure:${state.kind}", System.currentTimeMillis())
+        ) {
+            speaker.speak(line)
+        }
     }
 }
