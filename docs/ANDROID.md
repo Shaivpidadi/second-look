@@ -11,14 +11,17 @@ SDK research notes live in [ANDROID-NOTES.md](ANDROID-NOTES.md).
 ## Layout
 
 - `core/` pure JVM module (no Android dependency). HTTP + SSE client for the Second
-  Look API, JSON and verdict helpers, YUV420 layout detection and conversion.
-  Unit tested, runs anywhere.
+  Look API, JSON and verdict helpers, YUV420 layout detection and conversion,
+  spoken-verdict phrases and debounce. Unit tested, runs anywhere.
 - `app/` Android app (minSdk 29, targetSdk 36), Kotlin + Compose.
   - `session/SessionViewModel.kt` owns registration, permission, session, camera
-    and streaming state, plus the camera-source, fps, and chroma toggles.
+    and streaming state, plus the camera-source, fps, chroma, speech, and tone
+    toggles.
   - `frames/YuvJpeg.kt` classifies packed SDK frames and converts them to JPEG.
   - `frames/PhoneCameraSource.kt` CameraX fallback that streams the phone camera
     through the same uploader when glasses pairing fails.
+  - `frames/VerdictSpeaker.kt` speaks mismatch/blocked verdicts over TTS and
+    beeps on clean when the tone setting is on.
   - `ui/Screens.kt` one screen: status, controls, error line, verdict list.
   - `MockPanel.kt` exists in `debug` (MockDeviceKit pairing panel) and `release`
     (empty stub) source sets, so mock SDK code never ships in release builds.
@@ -34,7 +37,7 @@ cd apps/android
 ANDROID_HOME=~/Library/Android/sdk ./gradlew :core:test :app:assembleDebug
 ```
 
-Verified Oct 28, 2026: `:core:test` 22/22 pass, `:app:assembleDebug` and
+Verified Oct 28, 2026: `:core:test` 29/29 pass, `:app:assembleDebug` and
 `:app:assembleRelease` both build.
 
 ## Frame protocol
@@ -53,9 +56,15 @@ as a `data:image/jpeg;base64,...` data URL in `value`. The server:
    judge) and publishes on the same SSE stream as text events. Unreadable or
    unsure fields abstain to Needs human.
 
-Live proof (Oct 28): a real fixture JPEG through this path returned a clean
-verdict in 6.6s, and the same frame with a corrupted typed field returned a
-mismatch naming the paper value as the fix in 7.6s. Two model calls each.
+Judged frames also feed session document memory: paper fields per doc type
+(no image bytes, capped, expires with the session). Once two documents are
+known, the cross-document validator runs over everything seen and publishes
+`frame.crossdoc` verdicts naming both documents and the conflicting field.
+
+Live proof (Oct 28): a BOL then a cross-form AWB returned a cross-doc verdict
+("BOL weight 2064kg vs AWB weight 3887kg") in 4 calls; per-frame totals 5.0s
+and 2.9s. Fresh-frame median is 3.6s after boxes/judge parallelization
+(measured 4.2s, 3.6s, 3.0s).
 
 ## How it works
 
@@ -72,6 +81,10 @@ mismatch naming the paper value as the fix in 7.6s. Two model calls each.
    undetectable V-first/U-first order if preview colors look wrong.
 5. Verdicts arrive over SSE from `/api/verdicts?sessionId=` and render newest-first
    with the shared Pass / Warn / Blocked / Needs human vocabulary.
+6. Mismatch and blocked verdicts are spoken over TTS ("Container number does
+   not match the bill of lading"), routed by the system to the glasses when
+   they are the connected Bluetooth audio device. Identical verdicts are
+   debounced for 30s. Clean verdicts beep only when the tone setting is on.
 
 Debug builds show a mock panel that enables MockDeviceKit, grants permission, and
 pairs virtual Ray-Ban Meta glasses, so the flow can be exercised without hardware.
@@ -105,4 +118,5 @@ pairs virtual Ray-Ban Meta glasses, so the flow can be exercised without hardwar
 4. Set the base URL field in the app to `http://<mac-ip>:3100`.
 5. Run the first real pairing test: register, grant camera, Start on glasses,
    confirm frames post and verdicts stream (fall back to the phone source and
-   the chroma toggle if pairing or colors misbehave).
+   the chroma toggle if pairing or colors misbehave). Confirm spoken verdicts
+   play through the glasses; toggle Speech and Clean tone to taste.

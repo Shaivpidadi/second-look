@@ -1,4 +1,56 @@
-# Status: Batch 18 done - glasses frames produce verdicts (Oct 28)
+# Status: Batch 19 done - cross-doc memory, faster frames, speech (Oct 28)
+
+## Batch 19 done
+
+Frames now accumulate session document memory: judged paper fields per
+doc type (no image bytes, 6 docs and 40 fields per doc max, idle
+sessions expire after 30 min). From the second document on, the
+existing cross-document validator runs over everything seen and
+publishes `frame.crossdoc` verdicts naming both documents and the
+conflicting field; conflicts publish, resolutions publish once, quiet
+pairs stay quiet. The judge reports readings via new `document` and
+`readings` reply-contract keys (structural, not prose: compliance went
+from 1/10 to 10/10).
+
+- Latency before: decode 44ms, boxes 2590ms, judge 4965ms, total
+  7602ms sequential. After: boxes and judge run in parallel, model
+  images cap at 1400px long side (smaller frames pass through
+  byte-identical), re-shown frames skip boxes (1 call, not 2), and
+  boxes failures no longer kill the verdict. Fresh-frame median
+  3.6s (measured 4.2s, 3.6s, 3.0s), under the 5s target.
+- Accuracy before/after on a 10-case frame subset (5 docs x
+  clean/corrupted-visible-field): precision 1.0 and recall 1.0 both,
+  0 abstentions both. A 768px downscale failed the gate (P 0.75,
+  R 0.60 with a systematic hyphen misread, PKG- as PKG=, at 768
+  and 1024) and was rejected for 1400. The eval vision arm is
+  untouched (shared prompt byte-identical, additive-only parsing),
+  so its batch-14 numbers (100/100, 0 abstentions) stand.
+- Dedupe fixed for the walk-through: dhash alone sat 0-2 bits apart
+  on same-layout doc swaps (the AWB frame dropped as a BOL dup), so
+  a 16x16 ink signature confirms (threshold 0.55; calibrated 0.05
+  noise, 0.51 shift, 0.58 same-type swap, 2.5+ cross-type), plus a
+  60s re-judge bound on staleness.
+- Spoken verdicts: mismatch/blocked speak a short plain phrase over
+  TTS through the system route (glasses speakers when connected;
+  no forced SCO channel), debounced 30s per identical verdict,
+  behind a Speech setting (default on); clean beeps behind a tone
+  setting (default off). Phrase builder and debounce unit-tested
+  in :core.
+- Walk-through proof, 4 calls: BOL (5.0s, clean, 4 readings) then
+  cross-form AWB (2.9s, mismatch) produced "BOL weight 2064kg vs
+  AWB weight 3887kg"; all 9 readings matched fixture paper exactly.
+- Vercel: events route pinned to nodejs with maxDuration 60; the
+  largest accepted POST is about 2.67 MB, under the 4.5 MB limit
+  (unit-tested). Live verdicts still need single-node (Mac Studio
+  LAN): the bus is in-memory, so multi-instance Vercel would not
+  fan out without an external bus. Nothing deployed.
+
+Batch spend: 48 model API calls (measure 2, P/R before 10,
+P/R after-768 10, tiebreak 3, size probes 3, P/R after-1400 10,
+fresh median 6, walk-through 4).
+`pnpm -r test`: 376 pass, 0 fail. `pnpm -r typecheck`: pass.
+`next build`: pass. `pnpm check:submit`: clean. Android:
+`:core:test` 29 pass, debug + release APKs assemble.
 
 ## Batch 18 done
 

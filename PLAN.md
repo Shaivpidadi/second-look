@@ -172,6 +172,14 @@ Top 5 risks, each with a ≤30-min spike:
   `:core:test` green, debug + release APKs assemble,
   docs/ANDROID.md written. 0 calls. Screens unchanged: no
   new reshoot.
+- [x] Batch 19 (Oct 28): session document memory with
+  cross-doc verdicts, frame P50 7.6s to 3.6s (parallel
+  boxes/judge, 1400px cap, hash-skip, ink dedupe),
+  frame-subset P/R 1.0/1.0 before and after (768
+  rejected on a hyphen misread), spoken verdicts with
+  debounce + settings, walk-through proof 4 calls,
+  Vercel route pinned (nodejs, 60s, size-tested).
+  48 calls. Screens unchanged: no new reshoot.
 - [x] Batch 18 (Oct 28): server judges frame.pov data URLs
   (validate, dedupe, throttle with visible throttled state,
   Spark boxes + judge on the SSE stream), dependency-free
