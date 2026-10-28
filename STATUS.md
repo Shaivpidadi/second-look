@@ -1,4 +1,24 @@
-# Status — Batch 11 in progress: critique fixes, latency, demo script (Oct 28)
+# Status — Batch 11 done: critique fixes, sub-5s checks, demo script (Oct 28)
+
+## Batch 11 changes
+
+- Committed the batch-10 reshoot (15 PNGs), then critiqued every
+  frame (findings kept under "Batch 11 critique" below) and fixed
+  all 14: field paths and rule codes removed from visible UI
+  (shared lib/fields.ts labels; raw ids stay in data attributes),
+  invalid focus ring fixed, demo fixtures say "glimmer · local",
+  dashboard KPIs count runs, demo data shuffled with randomized
+  seconds, count references carry units, demo audit uses moment
+  tags, landing POV frame cropped to the document.
+- Latency: end-to-end checks under 5s live (details under "Batch
+  11 latency" below). 10 real API calls, 0 retries.
+- docs/DEMO.md is now a shot-by-shot 2:30 script with exact
+  screens, lines, and overlays; README gained the hook, a Meta
+  models section for judges, and corrected clip-path numbers.
+- 240 tests pass, 0 fail (3 new: skipSpark, single escalation,
+  single-keyframe default); typecheck (5 projects) and next build
+  green. No em dashes in user-facing copy; no real company names
+  outside the hook line.
 
 ## Batch 11 latency: end-to-end checks under 5s
 
