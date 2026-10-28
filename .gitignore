@@ -22,3 +22,10 @@ clips/*.jsonl
 clips/*.md
 clips/*.csv
 !clips/.gitkeep
+
+# Android client (Gradle, SDK, signing stay out of git)
+local.properties
+apps/android/.gradle/
+apps/android/**/build/
+apps/android/*.jks
+apps/android/*.keystore

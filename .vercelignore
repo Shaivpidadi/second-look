@@ -1,0 +1,5 @@
+# Keep the Android client out of Vercel uploads so the web build
+# stays fast. (Vercel reads this file from the project root; a
+# sibling directory cannot be excluded from inside apps/web, so no
+# second file applies there.)
+apps/android/
