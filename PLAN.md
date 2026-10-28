@@ -164,3 +164,11 @@ Top 5 risks, each with a ≤30-min spike:
   check:submit` gate (clean), README quickstart. Step 7
   skipped with measured reasoning. 0 calls. Screens changed:
   reshoot needed.
+- [x] Batch 17 (Oct 28): reshoot committed, `.vercelignore`
+  excludes apps/android, DAT AGENTS.md + docs read into
+  docs/ANDROID-NOTES.md, apps/android scaffolded (core JVM
+  module + Compose app), register/permission/session/stream/
+  verdict/mock/UI implemented, 13 core unit tests,
+  `:core:test` green, debug + release APKs assemble,
+  docs/ANDROID.md written. 0 calls. Screens unchanged: no
+  new reshoot.

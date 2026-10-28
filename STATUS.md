@@ -1,4 +1,31 @@
-# Status — Batch 16 done: submit gate, focus trap, README (Oct 28)
+# Status — Batch 17 done: Android client scaffold, green builds (Oct 28)
+
+## Batch 17 done
+
+Reshoot committed, `.vercelignore` keeps the new `apps/android/`
+out of Vercel uploads, and the Display and Automation SDK docs
+were read into docs/ANDROID-NOTES.md. The Android client is
+scaffolded and builds: `:core:test` 13/13 pass,
+`:app:assembleDebug` and `:app:assembleRelease` both produce
+APKs. Screens did not change, so no new reshoot is needed.
+
+- Client reuses POST /api/events + GET /api/verdicts SSE with
+  zero server changes; frames ride as JPEG data URLs at 2fps
+  LOW quality. Server-side vision decode is the next step.
+- `:core` is a pure JVM module (HTTP, SSE, JSON, verdict
+  helpers) with 13 unit tests; registers, requests camera
+  permission, creates a session, attaches a camera and streams.
+- Mock flows live in the debug source set only (MockDeviceKit
+  pairing panel); release builds carry an empty stub.
+- Build notes: Gradle 8.11.1, Kotlin 2.2.0, AGP 8.10.1,
+  dat-sdk 1.0.0-beta05 + mock 1.0.0-alpha08; Java 17 bytecode
+  on a JDK 21 host; SDK `fold` lambdas are crossinline so the
+  client uses `getOrNull` instead.
+
+Batch spend: 0 model API calls (no model work this batch).
+`pnpm -r test`: 335 pass, 0 fail. `pnpm -r typecheck`: pass
+(5 projects). `next build`: pass. `pnpm check:submit`: clean.
+Android: `:core:test` 13 pass, both APK assembles green.
 
 ## Batch 16 done
 
@@ -446,7 +473,8 @@ Needs Shaishav (human, before 6pm ET Nov 4):
 
 Needs no human:
 
-- Reshoot the 16 screenshots (screens changed this batch).
+- Reshoot the 16 screenshots (batch 16 screens changed; no
+  new changes in batch 17, so one reshoot covers both).
 - Optional margin work: shorter Spark explanations (per-call
   variance near ±2s is the whole sub-5s budget); Glimmer weights
   runner only if chasing the open-weight bonus past the stub.
