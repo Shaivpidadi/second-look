@@ -8,10 +8,13 @@ Hard deadline: Nov 4, 9pm ET (event page). Internal target: finish by Nov 3, 9pm
 - [ ] Entry form filled: title, tagline, and description below, track (solo indie).
 - [ ] Repo link or zip attached. Repo stays private until this step is done.
 - [ ] 3-minute demo video uploaded and linked (primary judging artifact).
-      Script and shot list: `docs/DEMO.md`. Human records and reviews.
+      Script and shot list: `docs/DEMO.md`; edit package
+      `docs/video/` (SCRIPT.md, OVERLAYS.txt, captions.srt).
+      Human records and reviews.
 - [ ] Video shows only work built during the event (Oct 27 to Nov 4).
 - [ ] Every number in the video and description matches README/STATUS
-      (table in README "Eval" section; detail in STATUS.md).
+      (table in README "Eval" section; detail in STATUS.md;
+      `docs/video/` covered by the headline number guard).
 - [ ] Stub arms still labelled `(stubbed)` wherever they appear.
 - [ ] Commits authored only by the local git identity (Shaishav Pidadi);
       no co-author, Generated-by, or AI trailers in commits, code, or docs.
@@ -20,8 +23,10 @@ Hard deadline: Nov 4, 9pm ET (event page). Internal target: finish by Nov 3, 9pm
       `git log -p -- .env` (empty) and a grep for the key prefix.
 - [ ] Meta stack gates all demonstrable:
       Muse Spark via Meta Model API (`muse-spark-1.3`),
-      SAM 3.1 via Meta Model API (`sam-3.1`),
-      Muse Glimmer local first pass with PII redaction,
+      SAM 3.1 adapter in the documented shape (parked after
+      empty-text replies; Spark-box fallback covers),
+      Muse Glimmer local first pass with PII redaction
+      (verdicts stubbed, labelled),
       built with Muse Code.
 - [ ] Tests and build green on the submit commit:
       `pnpm -r test`, `pnpm -r typecheck`,
@@ -64,14 +69,16 @@ decision to an append-only audit trail, and drafts a damage claim
 from the POD note.
 
 Meta stack: Muse Spark (`muse-spark-1.3`) reads and reasons over the
-documents, explains mismatches, and proposes fixes. SAM 3.1
-(`sam-3.1`) localizes and crops the document in glasses frames.
-The Glimmer tier (open weights, local first pass with PII
-redaction) runs stubbed until weights land, which targets the
-open-weight bonus. Claim drafts use a deterministic template. Built
-with Muse Code. Glasses input follows the Wearables Device Access
-Toolkit path with recorded POV clips running through the same
-pipeline.
+documents, explains mismatches, and proposes fixes. Crop
+localization runs through the `SamAdapter` interface: the `sam-3.1`
+adapter sends the documented shape but is parked after empty-text
+replies, so Spark JSON boxes cover glasses frames today and the
+swap back is one adapter. The Glimmer tier (open weights, local
+first pass with PII redaction) runs stubbed until weights land,
+which targets the open-weight bonus. Claim drafts use a
+deterministic template. Built with Muse Code. Glasses input
+follows the Wearables Device Access Toolkit path with recorded POV
+clips running through the same pipeline.
 
 Measured results: 98.8% recall on the 100-form standard split for
 both the single-model and tiered arms; 100% recall on the 40-form
