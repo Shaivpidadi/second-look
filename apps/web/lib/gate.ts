@@ -22,6 +22,7 @@ import {
   validateContainer,
   validateSscc,
 } from "@second-look/validators";
+import { comparePaperToTyped } from "./paper-match.ts";
 
 export type Decision = "ALLOW" | "BLOCK";
 
@@ -99,6 +100,28 @@ function digitFailure(fieldId: string, raw: string): GateFailure | null {
 }
 
 /**
+ * Fold paper-vs-typed mismatches into a gate run: each typed field that
+ * contradicts session paper memory fails as field_match with the paper
+ * value as its fix. A check-digit failure on the same field takes the
+ * paper value as its fix too: the recomputed check digit only makes the
+ * number valid, the paper makes it right.
+ */
+function applyPaperMatch(
+  values: Record<string, string>,
+  paper: Record<string, string>,
+  checks: FieldCheck[],
+  failures: GateFailure[],
+): void {
+  for (const mismatch of comparePaperToTyped(paper, values)) {
+    checks.push({ fieldId: mismatch.fieldId, kind: "field_match", passed: false, detail: mismatch.message });
+    for (const failure of failures) {
+      if (failure.fieldId === mismatch.fieldId) failure.fix = mismatch.fix;
+    }
+    failures.push({ ...mismatch });
+  }
+}
+
+/**
  * Submit gate. Runs deterministic validators before any model call and
  * blocks on any failure: bad check digits or a short/over receiving count.
  * Each check-digit failure carries a proposed fix (corrected check digit);
@@ -106,6 +129,7 @@ function digitFailure(fieldId: string, raw: string): GateFailure | null {
  */
 export function evaluateSubmission(
   values: Record<string, string>,
+  paper: Record<string, string> = {},
 ): GateResult {
   const checks: FieldCheck[] = [];
   const failures: GateFailure[] = [];
@@ -143,6 +167,7 @@ export function evaluateSubmission(
     }
     failures.push(failure);
   }
+  applyPaperMatch(values, paper, checks, failures);
 
   const verdict = reduceVerdict(checks);
   return {
@@ -159,6 +184,7 @@ export function evaluateSubmission(
  */
 export function evaluatePartialSubmission(
   values: Record<string, string>,
+  paper: Record<string, string> = {},
 ): GateResult {
   const checks: FieldCheck[] = [];
   const failures: GateFailure[] = [];
@@ -195,6 +221,7 @@ export function evaluatePartialSubmission(
       failures.push(failure);
     }
   }
+  applyPaperMatch(values, paper, checks, failures);
 
   const verdict = reduceVerdict(checks);
   return {
@@ -251,8 +278,9 @@ function readingsFromValues(values: Record<string, string>): FieldReading[] {
  */
 export async function evaluateTieredSubmission(
   values: Record<string, string>,
+  paper: Record<string, string> = {},
 ): Promise<TieredGateResult> {
-  const sync = evaluateSubmission(values);
+  const sync = evaluateSubmission(values, paper);
   const tiered = await runTieredPipeline({
     readings: readingsFromValues(values),
     typedValues: values,

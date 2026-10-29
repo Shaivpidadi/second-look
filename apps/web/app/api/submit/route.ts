@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { logAuditEntry } from "../../../lib/audit-store";
 import { storeClaimDraft } from "../../../lib/claim-store";
+import { sessionPaperValues } from "../../../lib/frame-path";
 import { evaluateTieredSubmission } from "../../../lib/gate";
 
 interface SubmitBody {
@@ -13,7 +14,8 @@ export async function POST(request: Request) {
   if (typeof body.sessionId !== "string" || typeof body.values !== "object" || body.values === null) {
     return NextResponse.json({ ok: false, error: "bad_submit" }, { status: 400 });
   }
-  const result = await evaluateTieredSubmission(body.values);
+  const paper = sessionPaperValues(body.sessionId);
+  const result = await evaluateTieredSubmission(body.values, paper);
   const ts = new Date().toISOString();
   try {
     if (result.failures.length === 0) {
@@ -33,7 +35,7 @@ export async function POST(request: Request) {
           ts,
           sessionId: body.sessionId,
           fieldId: failure.fieldId,
-          paperValue: null,
+          paperValue: paper[failure.fieldId] ?? null,
           typedValue: body.values[failure.fieldId] ?? null,
           verdict: result.verdict.state,
           action: `submit_block:${failure.rule}`,

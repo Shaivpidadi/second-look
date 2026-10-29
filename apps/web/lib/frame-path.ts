@@ -7,7 +7,6 @@ import {
   downscaleGray,
   encodeGrayToJpeg,
   frameHash,
-  hammingDistance,
   inkDistance,
   inkSignature,
   reduceVerdict,
@@ -15,6 +14,14 @@ import {
   type SamCropOutput,
 } from "@second-look/pipeline";
 import type { LiveVerdictFailure } from "./live-verdict.ts";
+import { fieldLabel } from "./fields.ts";
+import {
+  classifyPaperVsTyped,
+  comparePaperToTyped,
+  isPaperMatchField,
+  unverifiedField,
+} from "./paper-match.ts";
+import { processMap } from "./process-store.ts";
 import { publishLiveVerdict, type PublishedVerdict } from "./verdict-bus.ts";
 
 /**
@@ -29,19 +36,21 @@ export const FRAME_FIELD_ID = "frame.pov";
 /** Decoded-byte cap: the data URL stays well under Vercel's 4.5 MB body limit. */
 export const MAX_FRAME_BYTES = 2_000_000;
 
-/** Min dhash bits changed since the last judged keyframe; matches selectKeyframes. */
-export const FRAME_CHANGE_THRESHOLD = 8;
-
 /**
- * Max 16x16 ink distance that still counts as a duplicate. Calibrated on
- * corpus renders: re-noised captures 0.05-0.07, 3px shift 0.51,
- * same-type doc swap 0.58, cross-type swaps 2.5+. A duplicate older than
- * REJUDGE_AFTER_MS is re-judged anyway, bounding same-type staleness.
+ * Max 16x16 ink distance that still counts as the same view. Corpus
+ * renders: re-noised captures 0.05-0.07, 3px shift 0.51, same-type doc
+ * swap 0.58, cross-type swaps 2.5+. Handheld POV clips (fake-video E2E,
+ * 720x1280 with drift, tilt, blur, glare) measure 0.2-0.7 frame to frame
+ * and up to 1.9 over 3.5s on the same page, while different documents
+ * measure 2.7 to 25. The old 0.55 cut (plus dhash, which spans 4-17 bits
+ * on one held page and 5-18 across documents) judged 5 of every 6
+ * handheld frames and burned the call budget in seconds. A same-type
+ * swap under this cut waits for REJUDGE_AFTER_MS.
  */
-export const INK_DIFF_THRESHOLD = 0.55;
+export const INK_DIFF_THRESHOLD = 2.0;
 
-/** Near-duplicate frames re-judge after this long without a verdict. */
-export const REJUDGE_AFTER_MS = 60_000;
+/** Same-view frames re-judge after this long without a verdict. */
+export const REJUDGE_AFTER_MS = 30_000;
 
 /**
  * Model images downscale to this long side; dedupe still uses full
@@ -56,7 +65,7 @@ export const FRAME_RESPONSE_KEYS =
   ', "document": "bol|awb|invoice|packing|pod|label|unknown", "readings": {"<fieldId>": "<PAPER value>"}';
 
 /** Rolling per-session budget for frame-driven model calls. */
-export const MAX_FRAME_MODEL_CALLS_PER_MIN = 10;
+export const MAX_FRAME_MODEL_CALLS_PER_MIN = 16;
 const FRAME_CALL_WINDOW_MS = 60_000;
 
 /** One judged keyframe costs two calls: boxes plus the judge. */
@@ -69,29 +78,40 @@ export const FRAME_CONCEPT = "shipping document";
  * the cap never hurries generation, and a truncated reply parses as
  * no-judgment, which the frame path would read as a silent clean.
  * Output stays small through the prompt's own length caps instead.
+ * 768 was too tight: minimal reasoning alone spends ~500 tokens, so with
+ * the wider readings list 1 in 3 replies hit the cap and came back empty
+ * (fake-video E2E probe: 628, 768 (cut), 632 output tokens).
  */
-export const FRAME_SPARK_MAX_TOKENS = 768;
+export const FRAME_SPARK_MAX_TOKENS = 1536;
 
 export const FRAME_JUDGE_QUESTION = [
   "Frame judge: read every field's PAPER value from the attached POV frame,",
   "then compare against the TYPED readings below.",
   "Flag when: (1) a readable paper value differs from its typed value, except notes;",
+  "formatting is not a difference (spaces, dashes, case, printed prefixes like (00));",
+  "a value cut off by the frame edge goes under unreadable, never a flag;",
   "(2) any cross-document pair disagrees exactly: invoice.totalQty vs packing.totalQty,",
   "bol.weightKg vs awb.weightKg, pod.receivedCartons vs bol.cartons.",
   "Use kind field_match for (1), cross_doc for (2).",
   "When a field has no typed value, do not flag it.",
   'List fields you cannot read (blur, glare, skew) under "unreadable" instead of guessing.',
   'Also list fields you read but are unsure about under "low_confidence".',
-  'Set "document" to the doc type shown (bol, awb, invoice, packing, pod, label, or unknown),',
-  'and "readings" to ONLY these keys when shown, each mapped to its PAPER value:',
+  'Set "document" to the doc type shown (bol, awb, invoice, packing, pod, label, or unknown);',
+  'a computer screen or software form is not paper: set "document" to "screen" with empty "readings".',
+  'Set "readings" to ONLY these keys when shown, each mapped to its PAPER value exactly as printed:',
+  "awb.awbNumber, bol.bolNumber, bol.carrier, bol.containerNumber, label.sscc,",
   "bol.weightKg, bol.cartons, awb.weightKg, invoice.totalQty, packing.totalQty, pod.receivedCartons.",
   "Omit any key not visible; never add other keys.",
+  'Always fill "document" and "readings", even when there are no typed readings to compare.',
   'Keep "explanation" empty ("") when nothing is flagged, else one sentence of at most 140 characters.',
   'Keep each failure "detail" under 120 characters.',
   "Reply immediately with ONLY the JSON object.",
 ].join(" ");
 
 export const FRAME_CROSSDOC_FIELD_ID = "frame.crossdoc";
+
+/** Field id of paper-vs-typed verdicts published after a frame is judged. */
+export const FRAME_PAPER_FIELD_ID = "frame.paper";
 
 /** Max document entries kept per session; oldest drops first. */
 export const MAX_SESSION_DOCS = 6;
@@ -170,9 +190,15 @@ export interface SessionFrameState {
   lastSeenMs: number;
   /** Failure signature of the last cross-doc verdict; "clean" or null. */
   lastCrossDocKey: string | null;
+  /** Failure signature of the last paper-vs-typed verdict; "clean" or null. */
+  lastPaperKey: string | null;
+  /** Frame judges running now; new frames skip while one is in flight. */
+  inFlight: number;
+  /** True after one re-judge of a view that read nothing usable. */
+  emptyRetried: boolean;
 }
 
-const frameSessions = new Map<string, SessionFrameState>();
+const frameSessions = processMap<string, SessionFrameState>("frame-sessions");
 
 export function frameStateFor(sessionId: string, nowMs: number = Date.now()): SessionFrameState {
   let state = frameSessions.get(sessionId);
@@ -184,6 +210,9 @@ export function frameStateFor(sessionId: string, nowMs: number = Date.now()): Se
       documents: new Map(),
       lastSeenMs: nowMs,
       lastCrossDocKey: null,
+      lastPaperKey: null,
+      inFlight: 0,
+      emptyRetried: false,
     };
     frameSessions.set(sessionId, state);
   }
@@ -206,6 +235,24 @@ export function pruneFrameSessions(nowMs: number = Date.now()): number {
 const DOC_TYPE_PATTERN = /^[a-z0-9-]{1,24}$/;
 
 /**
+ * Paper document types session memory accepts. "unknown" and "screen"
+ * stay out: a glance at the form on a monitor would otherwise store the
+ * typed (possibly wrong) values as paper and mask the mismatch.
+ */
+export const PAPER_DOC_TYPES = new Set(["bol", "awb", "invoice", "packing", "pod", "label"]);
+
+/** Numeric paper fields: stored as bare integers ("2,064 kg" -> "2064"). */
+const NUMERIC_FIELD = /\.(weightKg|cartons|totalQty|receivedCartons|pieces)$/;
+
+/** Normalize one paper reading for storage; numeric fields keep digits only. */
+export function normalizePaperReading(fieldId: string, value: string): string {
+  const trimmed = value.trim();
+  if (!NUMERIC_FIELD.test(fieldId)) return trimmed;
+  const match = /\d[\d,]*/.exec(trimmed);
+  return match ? match[0].replace(/,/g, "") : trimmed;
+}
+
+/**
  * Store one judged document's paper fields, refreshing its slot. Bare
  * field names gain the doc-type prefix so validator pairs still match.
  * Oldest entries drop past MAX_SESSION_DOCS; returns false without
@@ -220,12 +267,12 @@ export function storeFrameDocument(
 ): boolean {
   if (docType === undefined || readings === undefined) return false;
   const type = docType.trim().toLowerCase();
-  if (!DOC_TYPE_PATTERN.test(type)) return false;
+  if (!DOC_TYPE_PATTERN.test(type) || !PAPER_DOC_TYPES.has(type)) return false;
   const fields: Record<string, string> = {};
   for (const [key, value] of Object.entries(readings)) {
     if (Object.keys(fields).length >= MAX_DOC_FIELDS) break;
     const fieldId = key.includes(".") ? key : `${type}.${key}`;
-    fields[fieldId] = value;
+    fields[fieldId] = normalizePaperReading(fieldId, value);
   }
   if (Object.keys(fields).length === 0) return false;
   state.documents.delete(type);
@@ -266,6 +313,71 @@ export function runSessionCrossDoc(
       rule: failure.kind,
       message: failure.detail ?? `${failure.fieldId} differs between documents`,
     })),
+    ts: new Date().toISOString(),
+  });
+}
+
+/**
+ * Paper values the session has read, flattened by field id. A field read
+ * on its own document (bol.cartons on the BOL) wins over the same field
+ * read elsewhere (shipped cartons on the POD). Never creates state.
+ */
+export function sessionDocTypes(sessionId: string): Set<string> {
+  return new Set(frameSessions.get(sessionId)?.documents.keys() ?? []);
+}
+
+export function sessionPaperValues(sessionId: string): Record<string, string> {
+  const state = frameSessions.get(sessionId);
+  if (!state) return {};
+  return mergedPaper(state);
+}
+
+function mergedPaper(state: SessionFrameState): Record<string, string> {
+  const merged: Record<string, string> = {};
+  for (const doc of state.documents.values()) {
+    for (const [fieldId, value] of Object.entries(doc.fields)) {
+      if (!fieldId.startsWith(`${doc.docType}.`)) merged[fieldId] ??= value;
+    }
+  }
+  for (const doc of state.documents.values()) {
+    for (const [fieldId, value] of Object.entries(doc.fields)) {
+      if (fieldId.startsWith(`${doc.docType}.`)) merged[fieldId] = value;
+    }
+  }
+  return merged;
+}
+
+/**
+ * Compare session paper memory with the typed values the frame was
+ * judged against. Publishes a blocked verdict naming each typed field
+ * that contradicts the paper (fix: the paper value), a clean one when a
+ * past conflict resolves, nothing otherwise. No model calls.
+ */
+export function runSessionPaperMatch(
+  sessionId: string,
+  state: SessionFrameState,
+  typedValues: Record<string, string>,
+): PublishedVerdict | null {
+  const paper = mergedPaper(state);
+  const mismatches = comparePaperToTyped(paper, typedValues);
+  // Typed fields whose document is in view but whose value was not
+  // readable abstain, so silence never stands in for "matches paper".
+  const seen = new Set(state.documents.keys());
+  const unverified = Object.entries(typedValues)
+    .map(([fieldId, typed]) => unverifiedField(fieldId, typed, paper, seen, fieldLabel(fieldId)))
+    .filter((u) => u !== null);
+  const failures = [...mismatches, ...unverified];
+  const key =
+    failures.length === 0
+      ? "clean"
+      : failures.map((f) => `${f.fieldId}=${"fix" in f ? f.fix : f.rule}`).join(",");
+  if (key === state.lastPaperKey || (failures.length === 0 && state.lastPaperKey === null)) return null;
+  state.lastPaperKey = key;
+  return publishLiveVerdict(sessionId, {
+    fieldId: FRAME_PAPER_FIELD_ID,
+    decision: mismatches.length === 0 ? "ALLOW" : "BLOCK",
+    state: mismatches.length > 0 ? "blocked" : unverified.length > 0 ? "needs-human" : "clean",
+    failures,
     ts: new Date().toISOString(),
   });
 }
@@ -338,22 +450,17 @@ export function __resetFramePath(): void {
 }
 
 /**
- * True when the frame is too close to the last judged keyframe to
- * rerun: both structurally (dhash) and photometrically (ink). dhash
- * alone drops same-layout document swaps (measured 0-2 bits apart),
- * so ink confirms.
+ * True when the frame shows the same view as the last judged keyframe,
+ * by 16x16 ink distance. dhash is not used here: on handheld POV it
+ * moves 4-17 bits on one held page and 5-18 across different pages, so
+ * it separates nothing (see INK_DIFF_THRESHOLD).
  */
 export function isNearDuplicate(
   last: FrameDedupeKey | null,
   next: FrameDedupeKey,
-  threshold: number = FRAME_CHANGE_THRESHOLD,
   inkThreshold: number = INK_DIFF_THRESHOLD,
 ): boolean {
-  return (
-    last !== null &&
-    hammingDistance(last.dhash, next.dhash) < threshold &&
-    inkDistance(last.ink, next.ink) < inkThreshold
-  );
+  return last !== null && inkDistance(last.ink, next.ink) < inkThreshold;
 }
 
 function pruneCalls(state: SessionFrameState, nowMs: number): void {
@@ -452,7 +559,25 @@ export async function runFrameCheck(input: FrameCheckInput): Promise<FrameCheckR
   const fixes = new Map(
     spark.proposedFixes.map((fix) => [fix.fieldId, fix.paperValue]),
   );
+  const unreadable = [...(spark.unreadable ?? [])];
+  const judged: NonNullable<typeof spark.judgment>["failures"] = [];
   for (const failure of spark.judgment?.failures ?? []) {
+    // The model's own reading arbitrates its field_match flags: a
+    // formatting-only difference is no flag, a number clipped by the
+    // frame edge is unreadable, not a mismatch.
+    const paper = spark.paperReadings?.[failure.fieldId];
+    const typed = input.typedValues[failure.fieldId];
+    if (failure.kind === "field_match" && isPaperMatchField(failure.fieldId) && paper !== undefined && typed !== undefined) {
+      const verdict = classifyPaperVsTyped(failure.fieldId, paper, typed);
+      if (verdict === "match") continue;
+      if (verdict === "cut-off" || verdict === "misread") {
+        if (!unreadable.includes(failure.fieldId)) unreadable.push(failure.fieldId);
+        continue;
+      }
+    }
+    judged.push(failure);
+  }
+  for (const failure of judged) {
     const entry: LiveVerdictFailure = {
       fieldId: failure.fieldId,
       rule: failure.kind,
@@ -462,7 +587,7 @@ export async function runFrameCheck(input: FrameCheckInput): Promise<FrameCheckR
     if (fix !== null && fix !== undefined) entry.fix = fix;
     failures.push(entry);
   }
-  for (const fieldId of spark.unreadable ?? []) {
+  for (const fieldId of unreadable) {
     failures.push({
       fieldId,
       rule: "unreadable",
@@ -476,10 +601,22 @@ export async function runFrameCheck(input: FrameCheckInput): Promise<FrameCheckR
       message: `Unsure about ${fieldId} in the frame.`,
     });
   }
-  const abstained = (spark.unreadable?.length ?? 0) + (spark.lowConfidence?.length ?? 0) > 0;
+  // A model reply with no parseable judgment (cut off or not JSON) is
+  // not a clean frame: say so, and leave the view open for the next
+  // frame. Stubs report no usage and never judge, so they stay clean.
+  const judgeFailed = spark.judgment === undefined && spark.usage !== undefined;
+  if (judgeFailed) {
+    failures.push({
+      fieldId: FRAME_FIELD_ID,
+      rule: "unreadable",
+      message: "The check did not finish reading this frame; hold the page steady.",
+    });
+  }
+  const abstained =
+    judgeFailed || unreadable.length + (spark.lowConfidence?.length ?? 0) > 0;
   const state: FrameVerdictState = abstained
     ? "needs-human"
-    : reduceVerdict(spark.judgment?.failures ?? []).state;
+    : reduceVerdict(judged).state;
   return {
     state,
     decision: state === "blocked" ? "BLOCK" : "ALLOW",
@@ -499,6 +636,11 @@ export interface FramePostInput {
   /** Raw `frame.pov` event value: a JPEG or PNG data URL. */
   value: string;
   typedValues: Record<string, string>;
+  /**
+   * Typed values at judge completion (the worker may type while the
+   * judge runs); defaults to the snapshot in typedValues.
+   */
+  latestTypedValues?: () => Record<string, string>;
   /** Client-sent session memory (extracted fields, no image bytes). */
   memory?: unknown;
   adapters?: PipelineAdapters;
@@ -511,13 +653,15 @@ export interface FramePostCompleted {
   result: FrameCheckResult;
   frameVerdict: PublishedVerdict;
   crossDocVerdict: PublishedVerdict | null;
+  /** Paper-vs-typed verdict when the new paper changed the comparison. */
+  paperVerdict: PublishedVerdict | null;
   memoryAccepted: boolean;
 }
 
 export type FramePostOutcome =
   | { outcome: "rejected"; error: FrameRejectError }
   | { outcome: "undecodable" }
-  | { outcome: "duplicate" }
+  | { outcome: "duplicate"; reason: "same-view" | "busy" }
   | { outcome: "throttled"; verdict: PublishedVerdict }
   | { outcome: "accepted"; done: Promise<FramePostCompleted | null>; decodeMs: number };
 
@@ -549,9 +693,11 @@ export function handleFramePost(input: FramePostInput): FramePostOutcome {
     isNearDuplicate(state.lastKey, key) &&
     nowMs - state.lastJudgeMs < REJUDGE_AFTER_MS
   ) {
-    return { outcome: "duplicate" };
+    return { outcome: "duplicate", reason: "same-view" };
   }
-  state.lastKey = key;
+  // One judge at a time per session: a 2 fps stream would otherwise
+  // stack a judge per frame while the first is still reading the page.
+  if (state.inFlight > 0) return { outcome: "duplicate", reason: "busy" };
   const hash = frameHash(gray);
   // Client memory fills gaps first, so a fresh instance still runs
   // cross-doc checks; in-process memory wins on conflicts.
@@ -560,9 +706,17 @@ export function handleFramePost(input: FramePostInput): FramePostOutcome {
   if (!("error" in memory)) mergeClientMemory(state, memory.docs, nowMs);
   // Re-shown documents skip the localizer: boxes are audit provenance,
   // and this exact frame was already localized once.
-  const skipBoxes = [...state.documents.values()].some((doc) => doc.hash === hash);
-  const calls = skipBoxes ? 1 : FRAME_MODEL_CALLS_PER_CHECK;
-  if (!tryReserveFrameCalls(state, calls, nowMs)) {
+  let skipBoxes = [...state.documents.values()].some((doc) => doc.hash === hash);
+  let reserved = tryReserveFrameCalls(state, skipBoxes ? 1 : FRAME_MODEL_CALLS_PER_CHECK, nowMs);
+  // Tight budget: drop the localizer (audit provenance only) before
+  // dropping the verdict.
+  if (!reserved && !skipBoxes) {
+    skipBoxes = true;
+    reserved = tryReserveFrameCalls(state, 1, nowMs);
+  }
+  if (!reserved) {
+    // lastKey stays on the last judged view, so this page is judged as
+    // soon as budget frees instead of deduping against a throttled frame.
     const verdict = publishLiveVerdict(input.sessionId, {
       fieldId: FRAME_FIELD_ID,
       decision: "ALLOW",
@@ -572,6 +726,8 @@ export function handleFramePost(input: FramePostInput): FramePostOutcome {
     });
     return { outcome: "throttled", verdict };
   }
+  state.lastKey = key;
+  state.inFlight += 1;
   // The model sees a downscaled gray JPEG: fewer image tokens, same
   // verdicts (see STATUS.md). Dedupe and memory hash full pixels.
   let modelImage = parsed.frame.bytes;
@@ -596,6 +752,7 @@ export function handleFramePost(input: FramePostInput): FramePostOutcome {
     onBoxesError: (error) => onError(`frame boxes failed (hash ${hash})`, error),
   }).then(
     (result) => {
+      state.inFlight = Math.max(0, state.inFlight - 1);
       state.lastJudgeMs = nowMs;
       const frameVerdict = publishLiveVerdict(input.sessionId, {
         fieldId: FRAME_FIELD_ID,
@@ -605,12 +762,22 @@ export function handleFramePost(input: FramePostInput): FramePostOutcome {
         ts: new Date().toISOString(),
       });
       let crossDocVerdict: PublishedVerdict | null = null;
+      let paperVerdict: PublishedVerdict | null = null;
       if (storeFrameDocument(state, result.document, result.readings, hash, nowMs)) {
         crossDocVerdict = runSessionCrossDoc(input.sessionId, state);
+        paperVerdict = runSessionPaperMatch(input.sessionId, state, input.latestTypedValues?.() ?? typedValues);
+        state.emptyRetried = false;
+      } else if (state.lastKey === key && !state.emptyRetried) {
+        // Nothing usable read (no doc type or readings): give the next
+        // frame of this view one more judge instead of deduping against
+        // a miss. One retry only, so a blank view never loops.
+        state.lastKey = null;
+        state.emptyRetried = true;
       }
-      return { result, frameVerdict, crossDocVerdict, memoryAccepted };
+      return { result, frameVerdict, crossDocVerdict, paperVerdict, memoryAccepted };
     },
     (error: unknown) => {
+      state.inFlight = Math.max(0, state.inFlight - 1);
       onError(`frame check failed (hash ${hash})`, error);
       return null;
     },

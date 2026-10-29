@@ -19,6 +19,9 @@ import {
   FRAME_JUDGE_LONG_SIDE,
   FRAME_JUDGE_QUESTION,
   FRAME_SPARK_MAX_TOKENS,
+  FRAME_PAPER_FIELD_ID,
+  INK_DIFF_THRESHOLD,
+  sessionPaperValues,
   FRAME_MODEL_CALLS_PER_CHECK,
   frameStateFor,
   handleFramePost,
@@ -74,6 +77,27 @@ function stubAdapters(): PipelineAdapters {
   return createPipelineAdapters("stub");
 }
 
+/** Stub adapters whose judge reads a document, so the view is remembered. */
+function readingAdapters(): PipelineAdapters {
+  return {
+    ...stubAdapters(),
+    spark: {
+      name: "fake-reader",
+      async escalate(): Promise<SparkEscalationOutput> {
+        return {
+          explanation: "",
+          proposedFixes: [],
+          latencyMs: 1,
+          costUsd: 0,
+          judgment: { flagged: false, failures: [] },
+          document: "bol",
+          paperReadings: { "bol.cartons": "1" },
+        };
+      },
+    },
+  };
+}
+
 function freshState(): SessionFrameState {
   return {
     lastKey: null,
@@ -82,6 +106,9 @@ function freshState(): SessionFrameState {
     documents: new Map(),
     lastSeenMs: 0,
     lastCrossDocKey: null,
+    lastPaperKey: null,
+    inFlight: 0,
+    emptyRetried: false,
   };
 }
 
@@ -188,20 +215,19 @@ test("frame: largest accepted frame stays under Vercel's body limit", () => {
   assert.ok(post.length < VERCEL_BODY_LIMIT, `${post.length} exceeds ${VERCEL_BODY_LIMIT}`);
 });
 
-test("frame: near-duplicate detection honors both thresholds", () => {
+test("frame: same-view detection uses ink distance only", () => {
   assert.equal(isNearDuplicate(null, dedupeKey(0n, [0])), false);
   assert.equal(isNearDuplicate(dedupeKey(0b1010n, [0]), dedupeKey(0b1010n, [0])), true);
-  assert.equal(isNearDuplicate(dedupeKey(0n, [0]), dedupeKey((1n << 8n) - 1n, [0])), false);
-  assert.equal(isNearDuplicate(dedupeKey(0n, [0]), dedupeKey((1n << 7n) - 1n, [0])), true);
-  assert.equal(isNearDuplicate(dedupeKey(0n, [0]), dedupeKey(0n, [0.54])), true);
-  assert.equal(isNearDuplicate(dedupeKey(0n, [0]), dedupeKey(0n, [0.55])), false);
-  assert.equal(isNearDuplicate(dedupeKey(0n, [0]), dedupeKey(0b111n, [9]), 4), false);
-  assert.equal(isNearDuplicate(dedupeKey(0n, [0]), dedupeKey(0n, [0]), 8, 0.1), true);
+  // dhash moves 4-17 bits on one handheld page: it no longer splits views.
+  assert.equal(isNearDuplicate(dedupeKey(0n, [0]), dedupeKey((1n << 17n) - 1n, [0])), true);
+  assert.equal(isNearDuplicate(dedupeKey(0n, [0]), dedupeKey(0n, [INK_DIFF_THRESHOLD - 0.01])), true);
+  assert.equal(isNearDuplicate(dedupeKey(0n, [0]), dedupeKey(0n, [INK_DIFF_THRESHOLD])), false);
+  assert.equal(isNearDuplicate(dedupeKey(0n, [0]), dedupeKey(0n, [0.5]), 0.1), false);
 });
 
 test("frame: throttle reserves up to the per-minute cap, then refuses", () => {
   const state = freshState();
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < MAX_FRAME_MODEL_CALLS_PER_MIN / FRAME_MODEL_CALLS_PER_CHECK; i++) {
     assert.equal(tryReserveFrameCalls(state, FRAME_MODEL_CALLS_PER_CHECK, 0), true);
   }
   assert.equal(state.callTimestamps.length, MAX_FRAME_MODEL_CALLS_PER_MIN);
@@ -306,7 +332,7 @@ test("frame: post accepts, then drops the duplicate, publishing once", async () 
     sessionId,
     value,
     typedValues: {},
-    adapters: stubAdapters(),
+    adapters: readingAdapters(),
   });
   assert.equal(first.outcome, "accepted");
   if (first.outcome !== "accepted") throw new Error("unreachable");
@@ -316,7 +342,7 @@ test("frame: post accepts, then drops the duplicate, publishing once", async () 
     sessionId,
     value,
     typedValues: {},
-    adapters: stubAdapters(),
+    adapters: readingAdapters(),
   });
   assert.equal(second.outcome, "duplicate");
   assert.equal(seen.length, 1);
@@ -412,16 +438,22 @@ test("frame: bare reading names gain the doc-type prefix", () => {
 
 test("frame: document memory caps entries, fields, and rejects junk", () => {
   const state = freshState();
-  for (let i = 0; i < MAX_SESSION_DOCS + 2; i++) {
-    assert.equal(storeFrameDocument(state, `doc-${i}`, { [`f${i}`]: "v" }, `h${i}`, i), true);
-  }
-  assert.equal(state.documents.size, MAX_SESSION_DOCS);
-  assert.equal(state.documents.has("doc-0"), false);
-  assert.equal(state.documents.has(`doc-${MAX_SESSION_DOCS + 1}`), true);
+  const types = ["bol", "awb", "invoice", "packing", "pod", "label"];
+  types.forEach((type, i) => {
+    assert.equal(storeFrameDocument(state, type, { [`f${i}`]: "v" }, `h${i}`, i), true);
+  });
+  assert.equal(state.documents.size, Math.min(types.length, MAX_SESSION_DOCS));
+  // Re-reading a document refreshes it to newest.
+  assert.equal(storeFrameDocument(state, "bol", { f0: "w" }, "h0", 9), true);
+  assert.equal([...state.documents.keys()].at(-1), "bol");
   const many: Record<string, string> = {};
   for (let i = 0; i < MAX_DOC_FIELDS + 10; i++) many[`k${i}`] = "v";
-  assert.equal(storeFrameDocument(state, "big", many, "h", 0), true);
-  assert.equal(Object.keys(state.documents.get("big")?.fields ?? {}).length, MAX_DOC_FIELDS);
+  assert.equal(storeFrameDocument(state, "invoice", many, "h", 0), true);
+  assert.equal(Object.keys(state.documents.get("invoice")?.fields ?? {}).length, MAX_DOC_FIELDS);
+  // Not paper: a screen glance or an unclassified view never becomes memory.
+  assert.equal(storeFrameDocument(state, "screen", { "bol.cartons": "102" }, "h", 0), false);
+  assert.equal(storeFrameDocument(state, "unknown", { "bol.cartons": "102" }, "h", 0), false);
+  assert.equal(storeFrameDocument(state, "doc-0", { a: "b" }, "h", 0), false);
   assert.equal(storeFrameDocument(state, "BOL!!!", { a: "b" }, "h", 0), false);
   assert.equal(storeFrameDocument(state, undefined, { a: "b" }, "h", 0), false);
   assert.equal(storeFrameDocument(state, "bol", undefined, "h", 0), false);
@@ -452,7 +484,7 @@ test("frame: dhash-near but ink-far frames still judge", async () => {
   __resetFramePath();
   __resetLiveVerdictBus();
   const sessionId = "frame-ink";
-  const adapters = stubAdapters();
+  const adapters = readingAdapters();
   const top = bandFrame(true);
   const first = handleFramePost({
     sessionId,
@@ -551,9 +583,9 @@ test("frame: re-shown documents skip the localizer and reserve one call", async 
     },
   };
   const spark = judgingSparkSequence([
-    { judgment: { flagged: false, failures: [] }, document: "d0", paperReadings: { "d0.a": "1" } },
-    { judgment: { flagged: false, failures: [] }, document: "d1", paperReadings: { "d1.a": "1" } },
-    { judgment: { flagged: false, failures: [] }, document: "d0", paperReadings: { "d0.a": "1" } },
+    { judgment: { flagged: false, failures: [] }, document: "bol", paperReadings: { "bol.cartons": "1" } },
+    { judgment: { flagged: false, failures: [] }, document: "awb", paperReadings: { "awb.weightKg": "1" } },
+    { judgment: { flagged: false, failures: [] }, document: "bol", paperReadings: { "bol.cartons": "1" } },
   ]);
   await postFrame(sessionId, 0, spark);
   await postFrame(sessionId, 1, spark);
@@ -725,7 +757,9 @@ test("frame: over-budget frames publish a visible throttled verdict", async () =
   subscribeLiveVerdicts(sessionId, (verdict) => seen.push(verdict));
   const adapters = stubAdapters();
   const pending: Array<Promise<unknown>> = [];
-  for (let i = 0; i < 5; i++) {
+  // Full checks until one judge-only call is left, then judge-only.
+  const fullChecks = Math.floor(MAX_FRAME_MODEL_CALLS_PER_MIN / FRAME_MODEL_CALLS_PER_CHECK);
+  for (let i = 0; i < fullChecks; i++) {
     const frame = stripeFrame(i);
     const posted = handleFramePost({
       sessionId,
@@ -735,9 +769,9 @@ test("frame: over-budget frames publish a visible throttled verdict", async () =
       nowMs: 0,
     });
     assert.equal(posted.outcome, "accepted");
-    if (posted.outcome === "accepted") pending.push(posted.done);
+    if (posted.outcome === "accepted") await posted.done;
   }
-  const frame = stripeFrame(5);
+  const frame = stripeFrame(fullChecks);
   const throttled = handleFramePost({
     sessionId,
     value: jpegDataUrl(frame.gray, frame.width, frame.height),
@@ -776,7 +810,191 @@ test("frame: judge prompt scopes readings to cross-doc keys with length caps", (
 });
 
 test("frame: spark token cap stays high enough to never truncate", () => {
-  // A truncated reply parses as no-judgment (silent clean), so the cap
+  // A truncated reply parses as no-judgment (now needs-human), so the cap
   // is a backstop only; the prompt's own length caps keep output small.
-  assert.equal(FRAME_SPARK_MAX_TOKENS, 768);
+  assert.equal(FRAME_SPARK_MAX_TOKENS, 1536);
+});
+
+test("frame: a judge in flight makes new frames skip as busy", async () => {
+  __resetFramePath();
+  __resetLiveVerdictBus();
+  const sessionId = "frame-busy";
+  const first = handleFramePost({
+    sessionId,
+    value: jpegDataUrl(stripeFrame(0).gray, 32, 32),
+    typedValues: {},
+    adapters: stubAdapters(),
+  });
+  assert.equal(first.outcome, "accepted");
+  const second = handleFramePost({
+    sessionId,
+    value: jpegDataUrl(stripeFrame(1).gray, 32, 32),
+    typedValues: {},
+    adapters: stubAdapters(),
+  });
+  assert.deepEqual(second, { outcome: "duplicate", reason: "busy" });
+  if (first.outcome === "accepted") await first.done;
+  const third = handleFramePost({
+    sessionId,
+    value: jpegDataUrl(stripeFrame(1).gray, 32, 32),
+    typedValues: {},
+    adapters: stubAdapters(),
+  });
+  assert.equal(third.outcome, "accepted");
+  if (third.outcome === "accepted") await third.done;
+});
+
+test("frame: a throttled view is judged once budget frees, not deduped away", async () => {
+  __resetFramePath();
+  __resetLiveVerdictBus();
+  const sessionId = "frame-throttle-retry";
+  const state = frameStateFor(sessionId, 0);
+  state.callTimestamps = Array.from({ length: MAX_FRAME_MODEL_CALLS_PER_MIN }, () => 0);
+  const frame = stripeFrame(0);
+  const value = jpegDataUrl(frame.gray, frame.width, frame.height);
+  const throttled = handleFramePost({ sessionId, value, typedValues: {}, adapters: stubAdapters(), nowMs: 1 });
+  assert.equal(throttled.outcome, "throttled");
+  const again = handleFramePost({ sessionId, value, typedValues: {}, adapters: stubAdapters(), nowMs: 60_001 });
+  assert.equal(again.outcome, "accepted");
+  if (again.outcome === "accepted") await again.done;
+});
+
+test("frame: tight budget drops the localizer before the verdict", async () => {
+  __resetFramePath();
+  __resetLiveVerdictBus();
+  const sessionId = "frame-tight";
+  const state = frameStateFor(sessionId, 0);
+  state.callTimestamps = Array.from({ length: MAX_FRAME_MODEL_CALLS_PER_MIN - 1 }, () => 0);
+  const frame = stripeFrame(0);
+  const posted = handleFramePost({
+    sessionId,
+    value: jpegDataUrl(frame.gray, frame.width, frame.height),
+    typedValues: {},
+    adapters: stubAdapters(),
+    nowMs: 1,
+  });
+  assert.equal(posted.outcome, "accepted");
+  if (posted.outcome !== "accepted") throw new Error("unreachable");
+  const completed = await posted.done;
+  assert.equal(completed?.result.boxesSkipped, true);
+});
+
+test("frame: paper read first, typed later or earlier, flags the same mismatch", async () => {
+  __resetFramePath();
+  __resetLiveVerdictBus();
+  const spark = judgingSpark({
+    judgment: { flagged: false, failures: [] },
+    document: "bol",
+    paperReadings: { "bol.cartons": "120 CTNS", "bol.bolNumber": "BOL-00421307" },
+  });
+  // Form first: the paper verdict lands with the frame.
+  const seen: PublishedVerdict[] = [];
+  subscribeLiveVerdicts("form-first", (v) => seen.push(v));
+  const frame = stripeFrame(0);
+  const formFirst = handleFramePost({
+    sessionId: "form-first",
+    value: jpegDataUrl(frame.gray, frame.width, frame.height),
+    typedValues: { "bol.cartons": "102", "bol.bolNumber": "BOL-00421307" },
+    adapters: { ...stubAdapters(), spark },
+  });
+  if (formFirst.outcome !== "accepted") throw new Error("expected accepted");
+  const done = await formFirst.done;
+  assert.equal(done?.paperVerdict?.fieldId, FRAME_PAPER_FIELD_ID);
+  assert.deepEqual(
+    done?.paperVerdict?.failures.map((f) => [f.fieldId, f.fix]),
+    [["bol.cartons", "120"]],
+  );
+  // Docs first: memory holds the paper; the typed value is checked later.
+  const docsFirst = handleFramePost({
+    sessionId: "docs-first",
+    value: jpegDataUrl(frame.gray, frame.width, frame.height),
+    typedValues: {},
+    adapters: { ...stubAdapters(), spark },
+  });
+  if (docsFirst.outcome !== "accepted") throw new Error("expected accepted");
+  const later = await docsFirst.done;
+  assert.equal(later?.paperVerdict, null);
+  assert.deepEqual(sessionPaperValues("docs-first"), {
+    "bol.cartons": "120",
+    "bol.bolNumber": "BOL-00421307",
+  });
+  assert.deepEqual(sessionPaperValues("never-seen"), {});
+});
+
+test("frame: a view that read nothing gets exactly one more judge", async () => {
+  __resetFramePath();
+  __resetLiveVerdictBus();
+  const sessionId = "frame-empty-retry";
+  const frame = stripeFrame(0);
+  const value = jpegDataUrl(frame.gray, frame.width, frame.height);
+  const post = () => handleFramePost({ sessionId, value, typedValues: {}, adapters: stubAdapters() });
+  const first = post();
+  if (first.outcome === "accepted") await first.done;
+  const retry = post();
+  assert.equal(retry.outcome, "accepted");
+  if (retry.outcome === "accepted") await retry.done;
+  assert.deepEqual(post(), { outcome: "duplicate", reason: "same-view" });
+});
+
+test("frame: a model reply with no judgment abstains instead of passing clean", async () => {
+  const result = await runFrameCheck({
+    image: new Uint8Array([0xff, 0xd8]),
+    frameWidth: 32,
+    frameHeight: 32,
+    typedValues: {},
+    adapters: {
+      ...stubAdapters(),
+      spark: judgingSpark({ usage: { inputTokens: 1800, outputTokens: 1536, cachedInputTokens: 0 } }),
+    },
+  });
+  assert.equal(result.state, "needs-human");
+  assert.equal(result.failures[0]?.rule, "unreadable");
+});
+
+test("frame: the judge's own reading overrules formatting and clipped-number flags", async () => {
+  const result = await runFrameCheck({
+    image: new Uint8Array([0xff, 0xd8]),
+    frameWidth: 32,
+    frameHeight: 32,
+    typedValues: { "awb.awbNumber": "02027342210", "bol.bolNumber": "BOL-00421307", "bol.cartons": "102" },
+    adapters: {
+      ...stubAdapters(),
+      spark: judgingSpark({
+        judgment: {
+          flagged: true,
+          failures: [
+            { fieldId: "awb.awbNumber", kind: "field_match", passed: false, detail: "cut" },
+            { fieldId: "bol.bolNumber", kind: "field_match", passed: false, detail: "dash" },
+            { fieldId: "bol.cartons", kind: "field_match", passed: false, detail: "120 vs 102" },
+          ],
+        },
+        document: "bol",
+        paperReadings: { "awb.awbNumber": "20-2734 2210", "bol.bolNumber": "BOL 00421307", "bol.cartons": "120" },
+      }),
+    },
+  });
+  assert.deepEqual(
+    result.failures.map((f) => [f.fieldId, f.rule]),
+    [["bol.cartons", "field_match"], ["awb.awbNumber", "unreadable"]],
+  );
+  assert.equal(result.state, "needs-human");
+});
+
+test("frame: a typed field whose document was read without it abstains", async () => {
+  __resetFramePath();
+  __resetLiveVerdictBus();
+  const frame = stripeFrame(0);
+  const posted = handleFramePost({
+    sessionId: "unverified",
+    value: jpegDataUrl(frame.gray, frame.width, frame.height),
+    typedValues: { "bol.containerNumber": "CSQU3054830", "bol.cartons": "120" },
+    adapters: {
+      ...stubAdapters(),
+      spark: judgingSpark({ judgment: { flagged: false, failures: [] }, document: "bol", paperReadings: { "bol.cartons": "120" } }),
+    },
+  });
+  if (posted.outcome !== "accepted") throw new Error("expected accepted");
+  const done = await posted.done;
+  assert.equal(done?.paperVerdict?.state, "needs-human");
+  assert.deepEqual(done?.paperVerdict?.failures.map((f) => [f.fieldId, f.rule]), [["bol.containerNumber", "unreadable"]]);
 });

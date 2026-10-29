@@ -1,6 +1,14 @@
 import { NextResponse } from "next/server";
-import { FRAME_FIELD_ID, handleFramePost } from "../../../lib/frame-path";
+import { fieldLabel } from "../../../lib/fields";
+import {
+  FRAME_FIELD_ID,
+  handleFramePost,
+  sessionDocTypes,
+  sessionPaperValues,
+} from "../../../lib/frame-path";
+import { unverifiedField } from "../../../lib/paper-match";
 import { evaluatePartialSubmission } from "../../../lib/gate";
+import { processMap } from "../../../lib/process-store";
 import { publishLiveVerdict } from "../../../lib/verdict-bus";
 
 /**
@@ -23,8 +31,8 @@ export interface FormEvent {
   memory?: unknown;
 }
 
-const store = new Map<string, FormEvent[]>();
-const valuesBySession = new Map<string, Record<string, string>>();
+const store = processMap<string, FormEvent[]>("form-events");
+const valuesBySession = processMap<string, Record<string, string>>("form-values");
 
 /**
  * Artificial verdict delay in ms, read at call time. Set VERDICT_DELAY_MS
@@ -51,10 +59,12 @@ export async function POST(request: Request) {
   // Frame events never touch the text store: the image bytes would
   // bloat every snapshot, and frames get vision verdicts, not typing ones.
   if (event.fieldId === FRAME_FIELD_ID) {
+    const sessionIdForFrame = event.sessionId;
     const posted = handleFramePost({
       sessionId: event.sessionId,
       value: event.value,
       typedValues: valuesBySession.get(event.sessionId) ?? {},
+      latestTypedValues: () => ({ ...(valuesBySession.get(sessionIdForFrame) ?? {}) }),
       memory: event.memory,
     });
     if (posted.outcome === "rejected") {
@@ -64,7 +74,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: false, error: "bad_frame_image" }, { status: 422 });
     }
     if (posted.outcome === "duplicate") {
-      return NextResponse.json({ ok: true, frame: "duplicate", verdicts: [] });
+      return NextResponse.json({ ok: true, frame: "duplicate", reason: posted.reason, verdicts: [] });
     }
     if (posted.outcome === "throttled") {
       return NextResponse.json({ ok: true, frame: "throttled", verdicts: [posted.verdict] });
@@ -75,9 +85,9 @@ export async function POST(request: Request) {
     if (completed === null) {
       return NextResponse.json({ ok: false, error: "frame_judge_failed" }, { status: 502 });
     }
-    const verdicts = completed.crossDocVerdict
-      ? [completed.frameVerdict, completed.crossDocVerdict]
-      : [completed.frameVerdict];
+    const verdicts = [completed.frameVerdict];
+    if (completed.crossDocVerdict) verdicts.push(completed.crossDocVerdict);
+    if (completed.paperVerdict) verdicts.push(completed.paperVerdict);
     return NextResponse.json({
       ok: true,
       frame: "judged",
@@ -107,12 +117,25 @@ export async function POST(request: Request) {
       if (delay > 0) {
         await new Promise((resolve) => setTimeout(resolve, delay));
       }
-      const result = evaluatePartialSubmission(snapshot);
+      // Paper read earlier by the glasses is checked against what was
+      // just typed, so docs-first sessions catch mismatches too.
+      const paper = sessionPaperValues(sessionId);
+      const result = evaluatePartialSubmission(snapshot, paper);
+      const unverified = unverifiedField(
+        fieldId,
+        snapshot[fieldId] ?? "",
+        paper,
+        sessionDocTypes(sessionId),
+        fieldLabel(fieldId),
+      );
+      const failures = unverified ? [...result.failures, unverified] : result.failures;
+      const state =
+        unverified && result.decision === "ALLOW" ? "needs-human" : result.verdict.state;
       publishLiveVerdict(sessionId, {
         fieldId,
         decision: result.decision,
-        state: result.verdict.state,
-        failures: result.failures,
+        state,
+        failures,
         ts: new Date().toISOString(),
       });
     } catch (error) {
