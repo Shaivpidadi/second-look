@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import type { LiveVerdictFailure } from "./live-verdict.ts";
+import { processMap } from "./process-store.ts";
 
 export interface PublishedVerdict {
   /**
@@ -23,7 +24,7 @@ interface SessionBus {
   listeners: Set<VerdictListener>;
 }
 
-const sessions = new Map<string, SessionBus>();
+const sessions = processMap<string, SessionBus>("verdict-bus");
 
 function busFor(sessionId: string): SessionBus {
   let bus = sessions.get(sessionId);

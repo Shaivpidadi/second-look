@@ -1,6 +1,8 @@
 import type { ClaimDraft } from "@second-look/pipeline";
 
-const draftsBySession = new Map<string, ClaimDraft[]>();
+import { processMap } from "./process-store.ts";
+
+const draftsBySession = processMap<string, ClaimDraft[]>("claim-drafts");
 
 /** Store a claim draft for a session (in-memory, like the event store). */
 export function storeClaimDraft(sessionId: string, draft: ClaimDraft): void {
