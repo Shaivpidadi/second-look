@@ -11,14 +11,15 @@ export const PAPER = {
   bol: {
     bolNumber: "BOL-00421307",
     carrier: "HARBOUR LINE GOODS",
+    consignee: "BLUE RIVER DISTRIBUTION",
     containerNumber: "CSQU3054383",
     cartons: "120",
     weightKg: "2064",
   },
-  awb: { awbNumber: "02027342210", pieces: "120", weightKg: "2064" },
+  awb: { awbNumber: "02027342210", consignee: "BLUE RIVER DISTRIBUTION", pieces: "120", weightKg: "2064" },
   invoice: { totalQty: "360" },
   packing: { totalQty: "360", cartons: "120", weightKg: "2064" },
-  pod: { bolNumber: "BOL-00421307", shipped: "120", receivedCartons: "120", exceptionNote: "" },
+  pod: { bolNumber: "BOL-00421307", shipped: "120", receivedCartons: "120", exceptionNote: "", signed: true },
   label: { sscc: "106141410000001238" },
 };
 
@@ -27,6 +28,7 @@ export const TYPED = {
   "awb.awbNumber": "02027342210",
   "bol.bolNumber": "BOL-00421307",
   "bol.carrier": "HARBOUR LINE GOODS",
+  "bol.consignee": "BLUE RIVER DISTRIBUTION",
   "bol.containerNumber": "CSQU3054383",
   "label.sscc": "106141410000001238",
   "bol.cartons": "120",
@@ -72,6 +74,27 @@ export const CASES = [
     expect: { flags: ["bol.carrier"], blockOnSubmit: true },
   },
   {
+    id: "consignee-wrong",
+    title: "Wrong consignee typed (a different party, one word off)",
+    docs: ["bol"],
+    typed: { "bol.consignee": "BLUE RIDGE DISTRIBUTION" },
+    expect: { flags: ["bol.consignee"], blockOnSubmit: true },
+  },
+  {
+    id: "consignee-format",
+    title: "Consignee formatting differs (case, comma, Inc., Dist.): must not flag",
+    docs: [{ type: "bol", fields: { consignee: "Blue River Distribution, Inc." } }],
+    typed: { "bol.consignee": "BLUE RIVER DIST. INC" },
+    expect: { flags: [], blockOnSubmit: false },
+  },
+  {
+    id: "xdoc-consignee",
+    title: "BOL consignee vs AWB consignee name a different party (paper vs paper)",
+    docs: ["bol", { type: "awb", fields: { consignee: "BLUE RIDGE DISTRIBUTION" } }],
+    orders: [["bol", "awb"], ["awb", "bol"]],
+    expect: { flags: ["awb.consignee"], blockOnSubmit: false },
+  },
+  {
     id: "container-blind",
     title: "Wrong container typed, valid check digit (validator-blind)",
     docs: ["bol"],
@@ -112,6 +135,24 @@ export const CASES = [
     docs: [{ type: "pod", fields: { receivedCartons: "118", exceptionNote: "2 cartons damaged" } }],
     typed: { "pod.receivedCartons": "120" },
     expect: { flags: ["pod.receivedCartons"], blockOnSubmit: true },
+  },
+  {
+    id: "pod-unsigned",
+    title: "Delivery receipt with a blank receiver signature line",
+    docs: [{ type: "pod", fields: { signed: false } }],
+    expect: { flags: ["pod.receiverSigned"], blockOnSubmit: true },
+  },
+  {
+    id: "pod-signed",
+    title: "Signed delivery receipt, correct form: must not flag",
+    docs: ["pod"],
+    expect: { flags: [], blockOnSubmit: false },
+  },
+  {
+    id: "pod-sign-covered",
+    title: "Signature line covered by a sticky note: flag or abstain, never silent",
+    docs: [{ type: "pod", fields: { signatureCover: true } }],
+    expect: { flags: ["pod.receiverSigned"], blockOnSubmit: null, allowAbstain: true },
   },
   {
     id: "xdoc-weight",

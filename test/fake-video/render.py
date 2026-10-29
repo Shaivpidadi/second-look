@@ -171,7 +171,12 @@ def render_pod(f):
     p.y = y + 30
     p.handwritten(f.get("exceptionNote", ""))
     p.y = max(p.y, y + 120)
+    sig_top = p.y
     p.signature("Received by (signature)", f.get("receiver", "J. Ortiz"), f.get("signed", True))
+    if f.get("signatureCover"):
+        # A sticky note slapped over the signature line: signed or not is unknowable.
+        p.d.rectangle([40, sig_top + 5, 660, sig_top + 124], fill=(250, 226, 92), outline=(205, 180, 60), width=3)
+        p.d.text((70, sig_top + 40), "see driver", font=HAND(52), fill=(40, 40, 40))
     return p.img
 
 
@@ -200,7 +205,7 @@ def render_screen(f):
     d = ImageDraw.Draw(img)
     d.rectangle([0, 0, 1600, 70], fill=(17, 24, 39))
     d.text((30, 18), "Second Look  |  Receiving form", font=BOLD(30), fill=(255, 255, 255))
-    labels = [("AWB number", "awb.awbNumber"), ("BOL number", "bol.bolNumber"), ("Carrier", "bol.carrier"),
+    labels = [("AWB number", "awb.awbNumber"), ("BOL number", "bol.bolNumber"), ("Carrier", "bol.carrier"), ("Consignee", "bol.consignee"),
               ("Container number", "bol.containerNumber"), ("SSCC (pallet label)", "label.sscc"),
               ("Shipped cartons", "bol.cartons"), ("Received cartons", "pod.receivedCartons")]
     for i, (label, key) in enumerate(labels):
