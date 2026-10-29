@@ -46,12 +46,18 @@ Pieces:
 | bol-cartons | typed 102, paper 120 CTNS | both | flag `bol.cartons` | BLOCK, fix 120 |
 | bol-number | BOL/PRO digits transposed | both | flag `bol.bolNumber` | BLOCK |
 | bol-carrier | wrong party name (carrier) | both | flag `bol.carrier` | BLOCK |
+| consignee-wrong | typed BLUE RIDGE DISTRIBUTION, paper BLUE RIVER DISTRIBUTION | both | flag `bol.consignee` | BLOCK, fix is the paper name |
+| consignee-format | paper "Blue River Distribution, Inc.", typed "BLUE RIVER DIST. INC" | both | no flags | ALLOW |
+| xdoc-consignee | BOL and AWB name different consignees | bol>awb, awb>bol | flag `awb.consignee` (cross-doc) | not scored for block |
 | container-blind | wrong container with a valid check digit | both | flag `bol.containerNumber` | BLOCK |
 | awb-blind | wrong AWB with a valid mod-7 check digit | both | flag `awb.awbNumber` | BLOCK |
 | awb-swap | AWB digits swapped (check digit fails) | both | flag `awb.awbNumber` | BLOCK |
 | sscc-blind | wrong SSCC with a valid GS1 check digit | both | flag `label.sscc` | BLOCK |
 | pod-short | POD 118 received, "2 cartons damaged"; BOL + POD | both | flag `pod.receivedCartons` | BLOCK + claim |
 | pod-typed-wrong | POD 118, typed 120 | both | flag `pod.receivedCartons` | BLOCK |
+| pod-unsigned | delivery receipt with a blank receiver signature line | both | flag `pod.receiverSigned` (missing_signature) | BLOCK |
+| pod-signed | signed delivery receipt, correct form | both | no flags | ALLOW |
+| pod-sign-covered | sticky note over the signature line | both | flag or abstain, never silent | n/a |
 | xdoc-weight | BOL 2064 kg vs AWB 2046 kg | bol>awb, awb>bol | flag `awb.weightKg` (cross-doc) | not scored for block |
 | xdoc-qty | invoice 363 vs packing 365 | invoice>packing, packing>invoice | flag `invoice.totalQty` (cross-doc) | not scored for block |
 | clean-full | six documents, correct form | both | no flags | ALLOW |
@@ -60,7 +66,7 @@ Pieces:
 | degraded-cartons | heavy blur and glare, wrong cartons | both | flag or abstain, never silent | n/a |
 | cutoff-container | container number clipped by the frame edge | both | flag or abstain, never silent | n/a |
 
-That is 33 scenarios per pass.
+That is 45 scenarios per pass (33 before the consignee and signature cases were added).
 
 ## Results
 
@@ -74,6 +80,15 @@ All runs used real models (Spark `muse-spark-1.3`) on 2026-10-28 (ET), with 6 fr
 | **full-3 (x2 repeats)** | d82d1c1 | **66/66** | **38/38** | **28/28** | **2830 / 4215 ms** | **999 / 6330 ms** | 268 | $0.92 |
 | **full-4** | b054c7e | **33/33** | **19/19** | **14/14** | **2782 / 4256 ms** | **1004 / 6878 ms** | 136 | $0.46 |
 | stub-3 (plumbing) | b054c7e | 33/33 | | | 61 / 70 ms | | 0 | $0 |
+| new-pilot (12 new cases) | pre-commit | 12/12 | | | 3200 / 5636 ms | 2577 / 8385 ms | 28 | $0.10 |
+| full-5 | pre-commit | 43/45 | | | 3512 / 6493 ms | 1176 / 7395 ms | 161 | $0.56 |
+| full-6 (parked frames) | pre-commit | 44/45 | | | 4189 / 6749 ms | 2684 / 10112 ms | 178 | $0.65 |
+| stub-5 (plumbing) | 60380c2 | 45/45 | | | 63 / 79 ms | | 0 | $0 |
+| **full-7** | **29a098c** | **45/45** | **26/26** | **19/19** | **3604 / 7591 ms** | **3049 / 8932 ms** | 185 | $0.65 |
+
+Runs from full-5 on were on 2026-10-29 (ET) morning. The API was slower then: in a same-hour A/B of 10 frame judges each, the old prompt averaged 4.2 s and the new one (consignee and signature added) 4.4 s, with output up about 17% (348 to 406 tokens per call). Most of the gap to full-4 is API load, not the prompt.
+
+full-5 missed both xdoc-weight orders and full-6 missed xdoc-consignee bol>awb for one reason: the first judge took 6 to 12 s, every frame of the second page arrived while it ran, and frames skipped as busy were dropped. A frame skipped while a judge runs is now parked and judged next, and the harness waits on `/api/sessions/status` for parked judges before scoring. In full-7, xdoc-consignee bol>awb was caught by a parked judge (1/12 frames judged on the POST path).
 
 \* full-2 counted clip render time inside the form-first window. That was a harness artifact, fixed in full-3.
 
@@ -105,10 +120,15 @@ Full per-scenario tables are in `test/fake-video/out/results-*.md`. That folder 
 | Android: no BLUETOOTH_CONNECT request, and permission errors were hidden | Silent glasses failure | 1ba64a9 |
 | No spend visibility | | `/api/health` reports calls, tokens and estimated spend (bcb1391) |
 | Frame throttle too tight for a six-document sweep | The last page was never judged (stub: 2/33 failing) | Per-session cap raised from 16 to 32 calls/min (b054c7e) |
+| Slow judge starved the next page | A 6-12 s judge made every frame of the second page skip as busy, so paper-vs-paper missed (full-5, full-6) | The newest busy frame is parked and judged next (dddab3a); harness waits for it (29a098c) |
+| Look-alike misread blocked a correct value | BOL read as BOI-00421307 blocked the typed BOL-00421307 | Values that differ only by look-alike characters (I/L/1, O/0, S/5, B/8) are a misread, so the system abstains (dddab3a) |
+| Consignee and POD signature not tracked | A wrong consignee or an unsigned delivery receipt passed silently | Consignee form field compared as a company name; receiver signature read off the receipt, blank blocks, unreadable goes to a human (dddab3a) |
 
 ## Known gaps
 
-- **Consignee and signature are not product fields.** The form has no consignee or signature field, so carrier stands in for the party-name case. A missing POD signature is not detected.
+- **Consignee is checked by name only.** Addresses are not compared: the BOL prints a street address and the AWB only a city, so an address check would flag formatting. Two companies with the same name at different addresses would pass. A one-character name difference goes to a human rather than blocking.
+- **Signature means "there is ink on the line".** The receiver's printed name and date are not read, and a scribble counts as signed. The synthetic receipt has no printed-name field.
+- **Covered signature line:** the model omitted the reading instead of listing it unreadable; the session-level check still sent it to a human (both runs).
 - **Remaining credit has no API.** Spend is estimated from tokens, and the balance is only on the Meta dashboard.
 - **Throughput ceiling for long sweeps.** At 16 calls/min, a fast six-document sweep could starve the last page. The stub run showed it every time, and one of four real shuffled runs missed a document in full-3. The cap is now 32 calls/min (16 checks); full-4 and stub-3 judged every document. A worker sweeping more than about 16 pages a minute would still hit the throttle, which shows as `throttled` in the results.
 - **Heavy blur abstains rather than flagging** (the expected safe behavior). It does not prove detection under heavy blur.
