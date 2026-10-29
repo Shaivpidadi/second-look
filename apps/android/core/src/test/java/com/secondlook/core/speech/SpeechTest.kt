@@ -73,6 +73,22 @@ class SpeechTest {
     }
 
     @Test
+    fun `consignee and signature have plain phrases`() {
+        assertEquals(
+            "Consignee does not match the paper.",
+            phraseFor(verdict("mismatch", listOf("bol.consignee" to "paper_mismatch"))),
+        )
+        assertEquals(
+            "Air waybill consignee differs between documents.",
+            phraseFor(verdict("mismatch", listOf("awb.consignee" to "cross_doc"))),
+        )
+        assertEquals(
+            "The delivery receipt is not signed.",
+            phraseFor(verdict("mismatch", listOf("pod.receiverSigned" to "missing_signature"))),
+        )
+    }
+
+    @Test
     fun `unknown fields and rules fall back gracefully`() {
         assertEquals(
             "Packing number does not match the packing list.",

@@ -10,6 +10,10 @@ import com.secondlook.core.api.LiveVerdict
 private val FIELD_LABELS = mapOf(
     "awb.awbNumber" to "Air waybill number",
     "bol.bolNumber" to "Bill of lading number",
+    "bol.carrier" to "Carrier",
+    "bol.consignee" to "Consignee",
+    "awb.consignee" to "Air waybill consignee",
+    "pod.receiverSigned" to "Receiver signature",
     "bol.containerNumber" to "Container number",
     "label.sscc" to "S S C C",
     "bol.cartons" to "Shipped cartons",
@@ -57,6 +61,8 @@ fun phraseFor(verdict: LiveVerdict): String? {
         "field_match" -> "$field does not match the ${docLabel(first.fieldId)}."
         "check_digit" -> "$field has a wrong check digit."
         "cross_doc" -> "$field differs between documents."
+        "paper_mismatch" -> "$field does not match the paper."
+        "missing_signature" -> "The delivery receipt is not signed."
         else -> "$field needs attention."
     }
     val rest = verdict.failures.size - 1
