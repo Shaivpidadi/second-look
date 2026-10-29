@@ -72,7 +72,8 @@ All runs used real models (Spark `muse-spark-1.3`) on 2026-10-28 (ET), with 6 fr
 | full-1 | mid-fix | 26/29 | | | 2684 / 4281 ms | 2229 / 6506 ms | 96 | $0.34 |
 | full-2 | mid-fix | 32/33 | 18/19 | 14/14 | 2900 / 4195 ms | 995 / 14317 ms* | 134 | $0.46 |
 | **full-3 (x2 repeats)** | d82d1c1 | **66/66** | **38/38** | **28/28** | **2830 / 4215 ms** | **999 / 6330 ms** | 268 | $0.92 |
-| stub (plumbing) | mid-fix | 29/29 plumbing | | | 60 / 64 ms | | 0 | $0 |
+| **full-4** | b054c7e | **33/33** | **19/19** | **14/14** | **2782 / 4256 ms** | **1004 / 6878 ms** | 136 | $0.46 |
+| stub-3 (plumbing) | b054c7e | 33/33 | | | 61 / 70 ms | | 0 | $0 |
 
 \* full-2 counted clip render time inside the form-first window. That was a harness artifact, fixed in full-3.
 
@@ -103,11 +104,12 @@ Full per-scenario tables are in `test/fake-video/out/results-*.md`. That folder 
 | Root `.env` not loaded by Next | The key was missing unless exported | 8375167 |
 | Android: no BLUETOOTH_CONNECT request, and permission errors were hidden | Silent glasses failure | 1ba64a9 |
 | No spend visibility | | `/api/health` reports calls, tokens and estimated spend (bcb1391) |
+| Frame throttle too tight for a six-document sweep | The last page was never judged (stub: 2/33 failing) | Per-session cap raised from 16 to 32 calls/min (b054c7e) |
 
 ## Known gaps
 
 - **Consignee and signature are not product fields.** The form has no consignee or signature field, so carrier stands in for the party-name case. A missing POD signature is not detected.
 - **Remaining credit has no API.** Spend is estimated from tokens, and the balance is only on the Meta dashboard.
-- **Not every document in a six-document session gets judged.** In full-3, one shuffled run never judged the AWB. The session still passes because the remaining documents agree, but a mismatch on a document that was never judged would be missed. Handheld dwell per page (3 s here) and the per-session throttle (16 calls/min, 2 per check) set the limit. Real use dwells longer.
+- **Throughput ceiling for long sweeps.** At 16 calls/min, a fast six-document sweep could starve the last page. The stub run showed it every time, and one of four real shuffled runs missed a document in full-3. The cap is now 32 calls/min (16 checks); full-4 and stub-3 judged every document. A worker sweeping more than about 16 pages a minute would still hit the throttle, which shows as `throttled` in the results.
 - **Heavy blur abstains rather than flagging** (the expected safe behavior). It does not prove detection under heavy blur.
 - **Form joining is checked with the API, not the browser.** `/api/sessions/latest` and `/form?session=glasses` were checked live; the browser click-through was not automated.
