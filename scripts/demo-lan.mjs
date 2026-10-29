@@ -5,9 +5,14 @@ import { lanUrl } from "./demo-net.mjs";
 
 export const DEMO_PORT = Number(process.env.PORT ?? 3100);
 
-/** pnpm args that start the web app bound to all interfaces. */
+/**
+ * pnpm args that start the web app bound to all interfaces. `exec next`
+ * passes the flags straight to Next; `dev -- -p` forwarded a literal
+ * "--" and Next read it as the project dir ("Invalid project directory
+ * .../-p").
+ */
 export function devArgs(port) {
-  return ["--filter", "@second-look/web", "dev", "--", "-p", String(port), "-H", "0.0.0.0"];
+  return ["--filter", "@second-look/web", "exec", "next", "dev", "-p", String(port), "-H", "0.0.0.0"];
 }
 
 async function main() {

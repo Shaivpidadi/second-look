@@ -108,7 +108,7 @@ pairs virtual Ray-Ban Meta glasses, so the flow can be exercised without hardwar
   requests the Android CAMERA permission at Start and streams CameraX
   YUV_420_888 frames with real stride metadata through the same uploader.
 - For LAN dev, run the web app on the Mac Studio bound to all interfaces:
-  `pnpm --filter @second-look/web dev -- -p 3100 -H 0.0.0.0` (port 3100 is
+  `pnpm demo:lan` (same as `pnpm --filter @second-look/web exec next dev -p 3100 -H 0.0.0.0`) (port 3100 is
   the repo convention). Find the Mac IP (System Settings / Wi-Fi / Details,
   or `ipconfig getifaddr en0`), join the phone to the same Wi-Fi, install
   the debug APK, and set the Server URL field to `http://<mac-ip>:3100`.

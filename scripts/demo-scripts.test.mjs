@@ -42,8 +42,9 @@ test("demo-lan: binds all interfaces on the demo port", () => {
   assert.deepEqual(devArgs(3100), [
     "--filter",
     "@second-look/web",
+    "exec",
+    "next",
     "dev",
-    "--",
     "-p",
     "3100",
     "-H",
