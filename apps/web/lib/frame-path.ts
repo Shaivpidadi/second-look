@@ -64,8 +64,12 @@ export const FRAME_JUDGE_LONG_SIDE = 1400;
 export const FRAME_RESPONSE_KEYS =
   ', "document": "bol|awb|invoice|packing|pod|label|unknown", "readings": {"<fieldId>": "<PAPER value>"}';
 
-/** Rolling per-session budget for frame-driven model calls. */
-export const MAX_FRAME_MODEL_CALLS_PER_MIN = 16;
+/**
+ * Rolling per-session budget for frame-driven model calls. 32 (16
+ * checks at 2 calls each) lets a worker sweep six documents in under
+ * 20 s without the last page starving; a check costs well under a cent.
+ */
+export const MAX_FRAME_MODEL_CALLS_PER_MIN = 32;
 const FRAME_CALL_WINDOW_MS = 60_000;
 
 /** One judged keyframe costs two calls: boxes plus the judge. */
