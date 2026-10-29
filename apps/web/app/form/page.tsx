@@ -131,10 +131,48 @@ function stateBadge(state: string | undefined): React.ReactNode {
 export default function ReceivingForm() {
   // Assigned client-side: a render-time UUID would hydrate differently.
   const [sessionId, setSessionId] = useState("");
-  useEffect(() => {
-    setSessionId(crypto.randomUUID());
-  }, []);
+  const [linked, setLinked] = useState<"none" | "linked" | "no-glasses">("none");
   const [values, setValues] = useState<Record<string, string>>(PREFILL);
+  const valuesRef = useRef(values);
+  valuesRef.current = values;
+  useEffect(() => {
+    // ?session=<id> joins that session; ?session=glasses joins the phone
+    // that streamed most recently. Either way the form re-sends every
+    // value, so paper the glasses read is checked against all of them.
+    const requested = new URLSearchParams(window.location.search).get("session");
+    let cancelled = false;
+    async function resolve(): Promise<void> {
+      if (requested === "glasses") {
+        try {
+          const res = await fetch("/api/sessions/latest", { cache: "no-store" });
+          const data = (await res.json()) as { session: { sessionId: string } | null };
+          if (cancelled) return;
+          if (data.session) {
+            setSessionId(data.session.sessionId);
+            setLinked("linked");
+            return;
+          }
+        } catch {
+          // Fall through to a fresh session.
+        }
+        if (!cancelled) {
+          setSessionId(crypto.randomUUID());
+          setLinked("no-glasses");
+        }
+        return;
+      }
+      if (requested !== null && /^[A-Za-z0-9-]{1,64}$/.test(requested)) {
+        setSessionId(requested);
+        setLinked("linked");
+        return;
+      }
+      setSessionId(crypto.randomUUID());
+    }
+    void resolve();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const [streamed, setStreamed] = useState(0);
   const [result, setResult] = useState<SubmitResult | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -162,6 +200,14 @@ export default function ReceivingForm() {
       tracker.dispose();
     };
   }, [sessionId]);
+
+  useEffect(() => {
+    if (!sessionId || linked !== "linked") return;
+    for (const [fieldId, value] of Object.entries(valuesRef.current)) {
+      if (value.trim() !== "") streamEvent(fieldId, value);
+    }
+    // streamEvent reads sessionId from this render; re-run only on link.
+  }, [sessionId, linked]);
 
   function streamEvent(fieldId: string, value: string) {
     clearTimeout(timers.current[fieldId]);
@@ -230,6 +276,15 @@ export default function ReceivingForm() {
             <Badge tone="neutral" className="font-mono">
               session {sessionId ? sessionId.slice(0, 8) : "…"}
             </Badge>
+            {linked === "linked" ? (
+              <Badge tone="pass">Linked session</Badge>
+            ) : (
+              <Button size="sm" variant="secondary" asChild>
+                <a href="/form?session=glasses">
+                  {linked === "no-glasses" ? "No glasses yet, retry" : "Join glasses"}
+                </a>
+              </Button>
+            )}
             <Button size="sm" variant="secondary" asChild>
               <Link href={`/dashboard?session=${sessionId}`}>
                 Dashboard <ArrowRight className="h-4 w-4" aria-hidden />

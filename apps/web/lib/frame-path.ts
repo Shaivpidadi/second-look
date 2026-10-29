@@ -220,6 +220,32 @@ export function frameStateFor(sessionId: string, nowMs: number = Date.now()): Se
   return state;
 }
 
+/** The most recently active frame session, for a form joining the glasses. */
+export interface LatestFrameSession {
+  sessionId: string;
+  lastSeenMs: number;
+  documents: string[];
+}
+
+/**
+ * The frame session that sent a frame most recently within maxAgeMs,
+ * or null. The form uses it to join the phone's session, so paper the
+ * glasses read and values typed on the form are compared in one place.
+ */
+export function latestFrameSession(
+  nowMs: number = Date.now(),
+  maxAgeMs: number = SESSION_IDLE_MS,
+): LatestFrameSession | null {
+  let latest: LatestFrameSession | null = null;
+  for (const [sessionId, state] of frameSessions) {
+    if (nowMs - state.lastSeenMs > maxAgeMs) continue;
+    if (latest === null || state.lastSeenMs > latest.lastSeenMs) {
+      latest = { sessionId, lastSeenMs: state.lastSeenMs, documents: [...state.documents.keys()] };
+    }
+  }
+  return latest;
+}
+
 /** Drop sessions idle past SESSION_IDLE_MS; returns the dropped count. */
 export function pruneFrameSessions(nowMs: number = Date.now()): number {
   let dropped = 0;

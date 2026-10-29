@@ -49,6 +49,8 @@ import {
   type PublishedVerdict,
 } from "./verdict-bus.ts";
 
+import { frameStateFor as stateForLatest, latestFrameSession } from "./frame-path.ts";
+
 function jpegDataUrl(gray: Uint8Array, width: number, height: number): string {
   const base64 = Buffer.from(encodeGrayToJpeg(gray, width, height)).toString("base64");
   return `data:image/jpeg;base64,${base64}`;
@@ -997,4 +999,15 @@ test("frame: a typed field whose document was read without it abstains", async (
   const done = await posted.done;
   assert.equal(done?.paperVerdict?.state, "needs-human");
   assert.deepEqual(done?.paperVerdict?.failures.map((f) => [f.fieldId, f.rule]), [["bol.containerNumber", "unreadable"]]);
+});
+
+test("frame: latest session is the most recent one within the idle window", () => {
+  __resetFramePath();
+  assert.equal(latestFrameSession(0), null);
+  stateForLatest("phone-a", 1_000);
+  stateForLatest("phone-b", 2_000);
+  assert.equal(latestFrameSession(2_500)?.sessionId, "phone-b");
+  stateForLatest("phone-a", 3_000);
+  assert.equal(latestFrameSession(3_500)?.sessionId, "phone-a");
+  assert.equal(latestFrameSession(3_000 + SESSION_IDLE_MS + 1), null);
 });
