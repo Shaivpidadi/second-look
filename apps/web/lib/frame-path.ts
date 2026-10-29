@@ -266,6 +266,16 @@ export function latestFrameSession(
   return latest;
 }
 
+/**
+ * True while a session still has a frame judge running or a parked
+ * frame waiting; false for idle or unknown sessions. Lets a client wait
+ * for the last verdict instead of guessing a delay.
+ */
+export function frameSessionJudging(sessionId: string): boolean {
+  const state = frameSessions.get(sessionId);
+  return state !== undefined && (state.inFlight > 0 || state.pendingFrame !== null);
+}
+
 /** Drop sessions idle past SESSION_IDLE_MS; returns the dropped count. */
 export function pruneFrameSessions(nowMs: number = Date.now()): number {
   let dropped = 0;

@@ -202,6 +202,17 @@ export async function runScenario(scenario, args) {
     await typeForm(args.base, sessionId, scenario.typed, args.typePaceMs, log);
   }
   await sleep(args.settleMs);
+  // A frame skipped while a judge ran is parked and judged afterwards;
+  // wait for it (bounded) so its verdict is scored, then let SSE drain.
+  const waitUntil = performance.now() + 20_000;
+  for (;;) {
+    const status = await fetch(`${args.base}/api/sessions/status?sessionId=${encodeURIComponent(sessionId)}`)
+      .then((r) => (r.ok ? r.json() : { judging: false }))
+      .catch(() => ({ judging: false }));
+    if (!status.judging || performance.now() > waitUntil) break;
+    await sleep(250);
+  }
+  await sleep(300);
   let submit = null;
   if (args.submit) {
     const r = await postJson(args.base, "/api/submit", { sessionId, values: scenario.typed });
@@ -247,7 +258,9 @@ export function score(scenario, run) {
   const reasons = [];
   for (const c of caught) if (!c.hit) reasons.push(`missed ${c.field}`);
   for (const u of unexpected) reasons.push(`unexpected ${u.fieldId}/${u.rule} via ${u.source}: ${u.message}`);
-  if (missedDocs.length) reasons.push(`never judged: ${missedDocs.join(",")}`);
+  // Parked frames are judged off the POST path, so a doc with no judged
+  // POST may still have been judged; only worth noting when something was missed.
+  if (missedDocs.length && !live.startsWith("PASS")) reasons.push(`no judged POST for: ${missedDocs.join(",")}`);
   if (errors.length) reasons.push(`${errors.length} frame errors (${[...new Set(errors.map((e) => e.outcome))].join(",")})`);
   if (run.submit && submitResult === "FAIL") reasons.push(`submit ${run.submit.decision}${scenario.expect.claim ? ` claim=${run.submit.claim}` : ""} [${run.submit.failures.map((f) => f.fieldId + "/" + f.rule).join(", ")}]`);
   return {

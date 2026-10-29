@@ -49,7 +49,7 @@ import {
   type PublishedVerdict,
 } from "./verdict-bus.ts";
 
-import { frameStateFor as stateForLatest, latestFrameSession } from "./frame-path.ts";
+import { frameSessionJudging, frameStateFor as stateForLatest, latestFrameSession } from "./frame-path.ts";
 
 function jpegDataUrl(gray: Uint8Array, width: number, height: number): string {
   const base64 = Buffer.from(encodeGrayToJpeg(gray, width, height)).toString("base64");
@@ -840,6 +840,8 @@ test("frame: a judge in flight makes new frames skip as busy", async () => {
   });
   assert.deepEqual(second, { outcome: "duplicate", reason: "busy" });
   if (first.outcome !== "accepted") throw new Error("expected accepted");
+  assert.equal(frameSessionJudging(sessionId), true);
+  assert.equal(frameSessionJudging("nobody"), false);
   // The skipped frame shows a new view: it is judged as soon as the first finishes.
   const completed = await first.done;
   assert.ok(completed?.next, "parked frame must be judged");
@@ -854,6 +856,7 @@ test("frame: a judge in flight makes new frames skip as busy", async () => {
     adapters: stubAdapters(),
   });
   assert.deepEqual(third, { outcome: "duplicate", reason: "same-view" });
+  assert.equal(frameSessionJudging(sessionId), false);
 });
 
 test("frame: a parked frame of the view just judged is dropped, not re-judged", async () => {
