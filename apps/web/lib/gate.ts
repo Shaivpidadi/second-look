@@ -22,7 +22,7 @@ import {
   validateContainer,
   validateSscc,
 } from "@second-look/validators";
-import { comparePaperToTyped } from "./paper-match.ts";
+import { comparePaperToTyped, signatureFailure } from "./paper-match.ts";
 
 export type Decision = "ALLOW" | "BLOCK";
 
@@ -118,6 +118,13 @@ function applyPaperMatch(
       if (failure.fieldId === mismatch.fieldId) failure.fix = mismatch.fix;
     }
     failures.push({ ...mismatch });
+  }
+  // A delivery receipt read with a blank receiver signature blocks too:
+  // it has no typed field, so it never shows up as a mismatch above.
+  const unsigned = signatureFailure(paper, new Set());
+  if (unsigned !== null) {
+    checks.push({ fieldId: unsigned.fieldId, kind: "field_match", passed: false, detail: unsigned.message });
+    failures.push({ ...unsigned });
   }
 }
 

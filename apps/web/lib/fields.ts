@@ -9,6 +9,9 @@ const FIELD_LABELS: Record<string, string> = {
   "awb.weightKg": "AWB weight",
   "bol.bolNumber": "BOL number",
   "bol.carrier": "Carrier",
+  "bol.consignee": "Consignee",
+  "awb.consignee": "AWB consignee",
+  "pod.receiverSigned": "Receiver signature",
   "bol.containerNumber": "Container number",
   "bol.cartons": "Shipped cartons",
   "bol.weightKg": "BOL weight",
@@ -50,6 +53,8 @@ const BLOCK_REASONS: Record<string, string> = {
   container_check_digit: "Container check digit",
   sscc_check_digit: "SSCC check digit",
   count_mismatch: "Count mismatch",
+  paper_mismatch: "Paper mismatch",
+  missing_signature: "Unsigned delivery receipt",
 };
 
 function prettifyCode(code: string): string {

@@ -1,6 +1,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { canonicalFieldValue, classifyPaperVsTyped, comparePaperToTyped, unverifiedField } from "./paper-match.ts";
+import {
+  canonicalFieldValue,
+  canonicalPartyName,
+  classifyPaperVsTyped,
+  comparePaperToTyped,
+  consigneeConflict,
+  normalizeSigned,
+  signatureFailure,
+  unverifiedField,
+} from "./paper-match.ts";
 import { evaluatePartialSubmission, evaluateSubmission } from "./gate.ts";
 
 test("paper-match: formatting never counts as a mismatch", () => {
@@ -84,4 +93,91 @@ test("paper-match: a paper read that fails its own check digit is a misread, not
   );
   // A valid printed number that differs is still a real mismatch.
   assert.equal(classifyPaperVsTyped("bol.containerNumber", "CSQU3054383", "CSQU3054830"), "mismatch");
+});
+
+test("paper-match: consignee formatting never flags, a different party does", () => {
+  assert.equal(canonicalPartyName("Blue River Distribution, Inc."), "BLUE RIVER DISTRIBUTION");
+  assert.equal(canonicalPartyName("BLUE RIVER DIST. INC"), "BLUE RIVER DISTRIBUTION");
+  assert.equal(canonicalPartyName("The Blue  River Distribution L.L.C."), "BLUE RIVER DISTRIBUTION");
+  assert.equal(canonicalPartyName("Smith & Sons Co"), "SMITH AND SONS");
+  // A name that is only a suffix keeps it rather than vanishing.
+  assert.equal(canonicalPartyName("Inc"), "INC");
+  assert.equal(canonicalPartyName(" ,. "), null);
+  for (const typed of ["blue river distribution", "Blue River Distribution LLC", "BLUE-RIVER DISTRIBUTION CO."]) {
+    assert.equal(classifyPaperVsTyped("bol.consignee", "BLUE RIVER DISTRIBUTION, INC.", typed), "match", typed);
+  }
+  assert.equal(classifyPaperVsTyped("bol.consignee", "BLUE RIVER DISTRIBUTION", "BLUE RIDGE DISTRIBUTION"), "mismatch");
+  assert.equal(classifyPaperVsTyped("bol.consignee", "BLUE RIVER DISTRIBUTION", "NORTHWIND COMPONENTS LTD"), "mismatch");
+  // One character off is a camera or typing slip: a human looks, no block.
+  assert.equal(classifyPaperVsTyped("bol.consignee", "BLUE RIVER DISTRIBUTION", "BLUE RIVER DISTRIBUTlON"), "misread");
+  assert.deepEqual(
+    comparePaperToTyped({ "bol.consignee": "Blue River Distribution" }, { "bol.consignee": "BLUE RIDGE DISTRIBUTION" }),
+    [{ fieldId: "bol.consignee", rule: "paper_mismatch", message: "Typed BLUE RIDGE DISTRIBUTION, paper says Blue River Distribution.", fix: "Blue River Distribution" }],
+  );
+});
+
+test("paper-match: the air waybill consignee verifies the typed consignee when no BOL was read", () => {
+  assert.equal(comparePaperToTyped({ "awb.consignee": "BLUE RIVER DISTRIBUTION" }, { "bol.consignee": "BLUE RIDGE DISTRIBUTION" }).length, 1);
+  // The BOL wins when both were read.
+  assert.deepEqual(
+    comparePaperToTyped(
+      { "bol.consignee": "BLUE RIVER DISTRIBUTION", "awb.consignee": "BLUE RIDGE DISTRIBUTION" },
+      { "bol.consignee": "Blue River Distribution Inc" },
+    ),
+    [],
+  );
+  assert.equal(unverifiedField("bol.consignee", "BLUE RIVER", {}, new Set(["awb"]), "Consignee")?.message, "Consignee was not readable on the air waybill; look at it again.");
+  assert.equal(unverifiedField("bol.consignee", "BLUE RIVER", { "awb.consignee": "BLUE RIVER" }, new Set(["awb"]), "Consignee"), null);
+  assert.equal(unverifiedField("bol.consignee", "BLUE RIVER", {}, new Set(["pod"]), "Consignee"), null);
+});
+
+test("paper-match: consignee on BOL vs air waybill conflicts only for a different party", () => {
+  assert.equal(consigneeConflict({ "bol.consignee": "BLUE RIVER DISTRIBUTION", "awb.consignee": "Blue River Distribution, Inc." }), null);
+  assert.equal(consigneeConflict({ "bol.consignee": "BLUE RIVER DISTRIBUTION" }), null);
+  assert.deepEqual(consigneeConflict({ "bol.consignee": "BLUE RIVER DISTRIBUTION", "awb.consignee": "BLUE RIDGE DISTRIBUTION" }), {
+    fieldId: "awb.consignee",
+    rule: "cross_doc",
+    message: "Consignee differs: bill of lading says BLUE RIVER DISTRIBUTION, air waybill says BLUE RIDGE DISTRIBUTION.",
+  });
+});
+
+test("paper-match: delivery receipt signature blocks when blank, abstains when unknown", () => {
+  assert.equal(normalizeSigned(" Yes "), "yes");
+  assert.equal(normalizeSigned("blank"), "no");
+  assert.equal(normalizeSigned("maybe"), null);
+  const pod = new Set(["pod"]);
+  assert.equal(signatureFailure({ "pod.receiverSigned": "no" }, pod)?.rule, "missing_signature");
+  assert.equal(signatureFailure({ "pod.receiverSigned": "yes" }, pod), null);
+  assert.equal(signatureFailure({}, pod)?.rule, "unreadable");
+  assert.equal(signatureFailure({ "pod.receiverSigned": "smudged" }, pod)?.rule, "unreadable");
+  // Only a delivery receipt carries the check.
+  assert.equal(signatureFailure({}, new Set(["bol"])), null);
+});
+
+test("gate: an unsigned delivery receipt blocks live typing and submit", () => {
+  const paper = { "pod.receiverSigned": "no", "pod.receivedCartons": "120" };
+  const live = evaluatePartialSubmission({ "bol.cartons": "120" }, paper);
+  assert.equal(live.decision, "BLOCK");
+  assert.deepEqual(live.failures.map((f) => [f.fieldId, f.rule]), [["pod.receiverSigned", "missing_signature"]]);
+  const values = {
+    "awb.awbNumber": "02027342210",
+    "bol.containerNumber": "CSQU3054383",
+    "label.sscc": "106141410000001238",
+    "bol.cartons": "120",
+    "pod.receivedCartons": "120",
+  };
+  assert.equal(evaluateSubmission(values, paper).decision, "BLOCK");
+  assert.equal(evaluateSubmission(values, { ...paper, "pod.receiverSigned": "yes" }).decision, "ALLOW");
+  // Wrong consignee blocks submit with the paper name as the fix.
+  const wrong = evaluateSubmission({ ...values, "bol.consignee": "BLUE RIDGE DISTRIBUTION" }, { "bol.consignee": "BLUE RIVER DISTRIBUTION" });
+  assert.deepEqual(wrong.failures.map((f) => [f.fieldId, f.fix]), [["bol.consignee", "BLUE RIVER DISTRIBUTION"]]);
+});
+
+test("paper-match: look-alike characters on a reference number are a misread, not a block", () => {
+  assert.equal(classifyPaperVsTyped("bol.bolNumber", "BOI-00421307", "BOL-00421307"), "misread");
+  assert.equal(classifyPaperVsTyped("bol.bolNumber", "BOL-0O421307", "BOL-00421307"), "misread");
+  assert.deepEqual(comparePaperToTyped({ "bol.bolNumber": "BOI-00421307" }, { "bol.bolNumber": "BOL-00421307" }), []);
+  assert.equal(unverifiedField("bol.bolNumber", "BOL-00421307", { "bol.bolNumber": "BOI-00421307" }, new Set(["bol"]), "BOL number")?.rule, "unreadable");
+  // Transposed digits are still a real mismatch.
+  assert.equal(classifyPaperVsTyped("bol.bolNumber", "BOL-00421307", "BOL-00421370"), "mismatch");
 });

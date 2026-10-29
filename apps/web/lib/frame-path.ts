@@ -18,7 +18,11 @@ import { fieldLabel } from "./fields.ts";
 import {
   classifyPaperVsTyped,
   comparePaperToTyped,
+  consigneeConflict,
   isPaperMatchField,
+  normalizeSigned,
+  SIGNATURE_FIELD,
+  signatureFailure,
   unverifiedField,
 } from "./paper-match.ts";
 import { processMap } from "./process-store.ts";
@@ -92,7 +96,8 @@ export const FRAME_JUDGE_QUESTION = [
   "Frame judge: read every field's PAPER value from the attached POV frame,",
   "then compare against the TYPED readings below.",
   "Flag when: (1) a readable paper value differs from its typed value, except notes;",
-  "formatting is not a difference (spaces, dashes, case, printed prefixes like (00));",
+  "formatting is not a difference (spaces, dashes, case, printed prefixes like (00),",
+  "and for company names punctuation and suffixes like Inc, LLC, Co, Ltd);",
   "a value cut off by the frame edge goes under unreadable, never a flag;",
   "(2) any cross-document pair disagrees exactly: invoice.totalQty vs packing.totalQty,",
   "bol.weightKg vs awb.weightKg, pod.receivedCartons vs bol.cartons.",
@@ -103,8 +108,12 @@ export const FRAME_JUDGE_QUESTION = [
   'Set "document" to the doc type shown (bol, awb, invoice, packing, pod, label, or unknown);',
   'a computer screen or software form is not paper: set "document" to "screen" with empty "readings".',
   'Set "readings" to ONLY these keys when shown, each mapped to its PAPER value exactly as printed:',
-  "awb.awbNumber, bol.bolNumber, bol.carrier, bol.containerNumber, label.sscc,",
-  "bol.weightKg, bol.cartons, awb.weightKg, invoice.totalQty, packing.totalQty, pod.receivedCartons.",
+  "awb.awbNumber, bol.bolNumber, bol.carrier, bol.consignee, awb.consignee, bol.containerNumber, label.sscc,",
+  "bol.weightKg, bol.cartons, awb.weightKg, invoice.totalQty, packing.totalQty, pod.receivedCartons,",
+  "pod.receiverSigned.",
+  "bol.consignee and awb.consignee are the consignee company name only (first line of the Consignee box), no address.",
+  'pod.receiverSigned is for a delivery receipt only: "yes" when the receiver signature line has handwriting on it,',
+  '"no" when that line is blank; when the line is covered, cut off, or too blurry to tell, list pod.receiverSigned under "unreadable" instead.',
   "Omit any key not visible; never add other keys.",
   'Always fill "document" and "readings", even when there are no typed readings to compare.',
   'Keep "explanation" empty ("") when nothing is flagged, else one sentence of at most 140 characters.',
@@ -200,6 +209,12 @@ export interface SessionFrameState {
   inFlight: number;
   /** True after one re-judge of a view that read nothing usable. */
   emptyRetried: boolean;
+  /**
+   * Newest frame that arrived while a judge was in flight. It is judged
+   * when that judge finishes, unless it shows the view just judged, so
+   * the last page of a sweep is never lost to a slow judge.
+   */
+  pendingFrame: FramePostInput | null;
 }
 
 const frameSessions = processMap<string, SessionFrameState>("frame-sessions");
@@ -217,6 +232,7 @@ export function frameStateFor(sessionId: string, nowMs: number = Date.now()): Se
       lastPaperKey: null,
       inFlight: 0,
       emptyRetried: false,
+      pendingFrame: null,
     };
     frameSessions.set(sessionId, state);
   }
@@ -277,6 +293,7 @@ const NUMERIC_FIELD = /\.(weightKg|cartons|totalQty|receivedCartons|pieces)$/;
 /** Normalize one paper reading for storage; numeric fields keep digits only. */
 export function normalizePaperReading(fieldId: string, value: string): string {
   const trimmed = value.trim();
+  if (fieldId === SIGNATURE_FIELD) return normalizeSigned(trimmed) ?? trimmed;
   if (!NUMERIC_FIELD.test(fieldId)) return trimmed;
   const match = /\d[\d,]*/.exec(trimmed);
   return match ? match[0].replace(/,/g, "") : trimmed;
@@ -305,6 +322,12 @@ export function storeFrameDocument(
     fields[fieldId] = normalizePaperReading(fieldId, value);
   }
   if (Object.keys(fields).length === 0) return false;
+  // A later view of the same receipt that missed the signature line
+  // keeps what an earlier view read, instead of forgetting it.
+  const previous = state.documents.get(type);
+  if (previous !== undefined && fields[SIGNATURE_FIELD] === undefined && previous.fields[SIGNATURE_FIELD] !== undefined) {
+    fields[SIGNATURE_FIELD] = previous.fields[SIGNATURE_FIELD];
+  }
   state.documents.delete(type);
   state.documents.set(type, { docType: type, fields, hash, updatedMs: nowMs });
   while (state.documents.size > MAX_SESSION_DOCS) {
@@ -328,7 +351,11 @@ export function runSessionCrossDoc(
   if (state.documents.size < 2) return null;
   const merged: Record<string, string> = {};
   for (const doc of state.documents.values()) Object.assign(merged, doc.fields);
-  const failures = checkCrossDoc(merged, { skipMissingInputs: true }).filter((c) => !c.passed);
+  const failures: Array<{ fieldId: string; kind: string; detail?: string }> = checkCrossDoc(merged, {
+    skipMissingInputs: true,
+  }).filter((c) => !c.passed);
+  const consignee = consigneeConflict(merged);
+  if (consignee !== null) failures.push({ fieldId: consignee.fieldId, kind: consignee.rule, detail: consignee.message });
   const key = failures.length === 0 ? "clean" : failures.map((f) => f.fieldId).join(",");
   if (failures.length === 0 && (state.lastCrossDocKey === null || state.lastCrossDocKey === "clean")) {
     return null;
@@ -396,7 +423,11 @@ export function runSessionPaperMatch(
   const unverified = Object.entries(typedValues)
     .map(([fieldId, typed]) => unverifiedField(fieldId, typed, paper, seen, fieldLabel(fieldId)))
     .filter((u) => u !== null);
-  const failures = [...mismatches, ...unverified];
+  // The receiver signature is checked on the paper alone: a blank line
+  // blocks, an unreadable one goes to a human.
+  const signature = signatureFailure(paper, seen);
+  const blocking = mismatches.length > 0 || signature?.rule === "missing_signature";
+  const failures = [...mismatches, ...unverified, ...(signature ? [signature] : [])];
   const key =
     failures.length === 0
       ? "clean"
@@ -405,8 +436,8 @@ export function runSessionPaperMatch(
   state.lastPaperKey = key;
   return publishLiveVerdict(sessionId, {
     fieldId: FRAME_PAPER_FIELD_ID,
-    decision: mismatches.length === 0 ? "ALLOW" : "BLOCK",
-    state: mismatches.length > 0 ? "blocked" : unverified.length > 0 ? "needs-human" : "clean",
+    decision: blocking ? "BLOCK" : "ALLOW",
+    state: blocking ? "blocked" : failures.length > 0 ? "needs-human" : "clean",
     failures,
     ts: new Date().toISOString(),
   });
@@ -621,14 +652,14 @@ export async function runFrameCheck(input: FrameCheckInput): Promise<FrameCheckR
     failures.push({
       fieldId,
       rule: "unreadable",
-      message: `Could not read ${fieldId} from the frame.`,
+      message: `Could not read ${fieldLabel(fieldId)} from the frame.`,
     });
   }
   for (const fieldId of spark.lowConfidence ?? []) {
     failures.push({
       fieldId,
       rule: "low_confidence",
-      message: `Unsure about ${fieldId} in the frame.`,
+      message: `Unsure about ${fieldLabel(fieldId)} in the frame.`,
     });
   }
   // A model reply with no parseable judgment (cut off or not JSON) is
@@ -686,6 +717,8 @@ export interface FramePostCompleted {
   /** Paper-vs-typed verdict when the new paper changed the comparison. */
   paperVerdict: PublishedVerdict | null;
   memoryAccepted: boolean;
+  /** Judge of a frame parked while this one ran, if one started. */
+  next: Promise<FramePostCompleted | null> | null;
 }
 
 export type FramePostOutcome =
@@ -727,7 +760,11 @@ export function handleFramePost(input: FramePostInput): FramePostOutcome {
   }
   // One judge at a time per session: a 2 fps stream would otherwise
   // stack a judge per frame while the first is still reading the page.
-  if (state.inFlight > 0) return { outcome: "duplicate", reason: "busy" };
+  // The newest skipped frame is parked and judged next.
+  if (state.inFlight > 0) {
+    state.pendingFrame = { ...input, nowMs: input.nowMs === undefined ? undefined : nowMs };
+    return { outcome: "duplicate", reason: "busy" };
+  }
   const hash = frameHash(gray);
   // Client memory fills gaps first, so a fresh instance still runs
   // cross-doc checks; in-process memory wins on conflicts.
@@ -772,6 +809,15 @@ export function handleFramePost(input: FramePostInput): FramePostOutcome {
   const adapters = input.adapters ?? createPipelineAdapters();
   const typedValues = { ...input.typedValues };
   const onError = input.onError ?? console.error;
+  /** Judge the parked frame, if any; same-view frames dedupe away. */
+  const drainPending = (): Promise<FramePostCompleted | null> | null => {
+    const pending = state.pendingFrame;
+    state.pendingFrame = null;
+    if (pending === null) return null;
+    const typedNow = pending.latestTypedValues?.() ?? pending.typedValues;
+    const nextPost = handleFramePost({ ...pending, typedValues: typedNow });
+    return nextPost.outcome === "accepted" ? nextPost.done : null;
+  };
   const done: Promise<FramePostCompleted | null> = runFrameCheck({
     image: modelImage,
     frameWidth: modelWidth,
@@ -804,11 +850,13 @@ export function handleFramePost(input: FramePostInput): FramePostOutcome {
         state.lastKey = null;
         state.emptyRetried = true;
       }
-      return { result, frameVerdict, crossDocVerdict, paperVerdict, memoryAccepted };
+      const next = drainPending();
+      return { result, frameVerdict, crossDocVerdict, paperVerdict, memoryAccepted, next };
     },
     (error: unknown) => {
       state.inFlight = Math.max(0, state.inFlight - 1);
       onError(`frame check failed (hash ${hash})`, error);
+      void drainPending();
       return null;
     },
   );

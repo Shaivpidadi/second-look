@@ -9,6 +9,7 @@ import {
   Inbox,
   OctagonX,
   Radio,
+  Signature,
 } from "lucide-react";
 import { Wordmark } from "../../components/brand";
 import { Badge } from "../../components/ui/badge";
@@ -43,6 +44,7 @@ const SECTIONS: Section[] = [
       { id: "awb.awbNumber", label: "AWB number", mono: true },
       { id: "bol.bolNumber", label: "BOL number", mono: true },
       { id: "bol.carrier", label: "Carrier" },
+      { id: "bol.consignee", label: "Consignee" },
     ],
   },
   {
@@ -62,8 +64,8 @@ const SECTIONS: Section[] = [
     ],
   },
   {
-    title: "Exception",
-    hint: "Handwritten POD notes become damage claims.",
+    title: "Delivery receipt",
+    hint: "The receiver signature is read off the paper; handwritten notes become damage claims.",
     fields: [{ id: "pod.exceptionNote", label: "POD exception note" }],
   },
 ];
@@ -74,6 +76,7 @@ const PREFILL: Record<string, string> = {
   "awb.awbNumber": "02027342210",
   "bol.bolNumber": "BOL-00421307",
   "bol.carrier": "HARBOUR LINE GOODS",
+  "bol.consignee": "BLUE RIVER DISTRIBUTION",
   "bol.containerNumber": "CSQU3054383",
   "label.sscc": "106141410000001238",
   "bol.cartons": "120",
@@ -120,6 +123,44 @@ function stateTone(state: string | undefined): StatusTone {
   if (state === "mismatch") return "warn";
   if (state === "blocked") return "block";
   return "idle";
+}
+
+const SIGNATURE_FIELD = "pod.receiverSigned";
+
+/**
+ * Receiver signature status. It has no typed value: the glasses read it
+ * off the delivery receipt, and only a problem ever reaches the form.
+ */
+function SignatureStatus({ failure }: { failure: Failure | undefined }) {
+  const missing = failure?.rule === "missing_signature";
+  const unsure = failure !== undefined && !missing;
+  return (
+    <div data-field-id={SIGNATURE_FIELD}>
+      <Label>Receiver signature</Label>
+      <div
+        className={cn(
+          "mt-1.5 flex items-center justify-between gap-3 rounded-md border bg-sunken px-3 py-2.5",
+          missing ? "border-block/40" : unsure ? "border-needs/40" : "border-line",
+        )}
+      >
+        <span className="flex items-center gap-2 text-[13px] text-ink-dim">
+          <Signature className="h-4 w-4 shrink-0" aria-hidden />
+          {missing
+            ? "The delivery receipt has a blank signature line."
+            : unsure
+              ? "Signature line was covered or unreadable. Check it by eye."
+              : "Checked on paper when the glasses see the delivery receipt."}
+        </span>
+        {missing ? (
+          <Badge tone="block">Not signed</Badge>
+        ) : unsure ? (
+          <Badge tone="needs">Needs human</Badge>
+        ) : (
+          <Badge tone="neutral">From paper</Badge>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function stateBadge(state: string | undefined): React.ReactNode {
@@ -263,6 +304,9 @@ export default function ReceivingForm() {
     if (!failedFields.has(failure.fieldId)) failedFields.set(failure.fieldId, failure);
   }
   const blocked = live?.decision === "BLOCK";
+  const signatureFailure = [...(live?.failures ?? []), ...(result?.failures ?? [])].find(
+    (failure) => failure.fieldId === SIGNATURE_FIELD,
+  );
   const submitCost = (result?.modelCalls ?? []).reduce((sum, call) => sum + call.costUsd, 0);
 
   return (
@@ -347,6 +391,9 @@ export default function ReceivingForm() {
                       </div>
                     );
                   })}
+                  {section.title === "Delivery receipt" && (
+                    <SignatureStatus failure={signatureFailure} />
+                  )}
                 </CardContent>
               </Card>
             ))}

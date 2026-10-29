@@ -6,7 +6,7 @@ import {
   sessionDocTypes,
   sessionPaperValues,
 } from "../../../lib/frame-path";
-import { unverifiedField } from "../../../lib/paper-match";
+import { signatureFailure, unverifiedField } from "../../../lib/paper-match";
 import { evaluatePartialSubmission } from "../../../lib/gate";
 import { processMap } from "../../../lib/process-store";
 import { publishLiveVerdict } from "../../../lib/verdict-bus";
@@ -128,9 +128,15 @@ export async function POST(request: Request) {
         sessionDocTypes(sessionId),
         fieldLabel(fieldId),
       );
-      const failures = unverified ? [...result.failures, unverified] : result.failures;
+      // An unreadable receiver signature stays visible while typing; a
+      // blank one already blocks through the gate.
+      const signature = signatureFailure(paper, sessionDocTypes(sessionId));
+      const abstains = [unverified, signature?.rule === "unreadable" ? signature : null].filter(
+        (f) => f !== null,
+      );
+      const failures = [...result.failures, ...abstains];
       const state =
-        unverified && result.decision === "ALLOW" ? "needs-human" : result.verdict.state;
+        abstains.length > 0 && result.decision === "ALLOW" ? "needs-human" : result.verdict.state;
       publishLiveVerdict(sessionId, {
         fieldId,
         decision: result.decision,

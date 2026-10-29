@@ -111,6 +111,7 @@ function freshState(): SessionFrameState {
     lastPaperKey: null,
     inFlight: 0,
     emptyRetried: false,
+    pendingFrame: null,
   };
 }
 
@@ -796,6 +797,9 @@ test("frame: judge prompt scopes readings to cross-doc keys with length caps", (
   for (const key of [
     "bol.weightKg",
     "bol.cartons",
+    "bol.consignee",
+    "awb.consignee",
+    "pod.receiverSigned",
     "awb.weightKg",
     "invoice.totalQty",
     "packing.totalQty",
@@ -835,15 +839,36 @@ test("frame: a judge in flight makes new frames skip as busy", async () => {
     adapters: stubAdapters(),
   });
   assert.deepEqual(second, { outcome: "duplicate", reason: "busy" });
-  if (first.outcome === "accepted") await first.done;
+  if (first.outcome !== "accepted") throw new Error("expected accepted");
+  // The skipped frame shows a new view: it is judged as soon as the first finishes.
+  const completed = await first.done;
+  assert.ok(completed?.next, "parked frame must be judged");
+  const parked = await completed?.next;
+  assert.ok(parked);
+  assert.equal(parked?.next, null);
+  // That view is now judged, so the same frame again dedupes.
   const third = handleFramePost({
     sessionId,
     value: jpegDataUrl(stripeFrame(1).gray, 32, 32),
     typedValues: {},
     adapters: stubAdapters(),
   });
-  assert.equal(third.outcome, "accepted");
-  if (third.outcome === "accepted") await third.done;
+  assert.deepEqual(third, { outcome: "duplicate", reason: "same-view" });
+});
+
+test("frame: a parked frame of the view just judged is dropped, not re-judged", async () => {
+  __resetFramePath();
+  __resetLiveVerdictBus();
+  const sessionId = "frame-busy-same";
+  const value = jpegDataUrl(stripeFrame(0).gray, 32, 32);
+  const first = handleFramePost({ sessionId, value, typedValues: {}, adapters: readingAdapters() });
+  if (first.outcome !== "accepted") throw new Error("expected accepted");
+  assert.deepEqual(handleFramePost({ sessionId, value, typedValues: {}, adapters: readingAdapters() }), {
+    outcome: "duplicate",
+    reason: "busy",
+  });
+  const completed = await first.done;
+  assert.equal(completed?.next, null);
 });
 
 test("frame: a throttled view is judged once budget frees, not deduped away", async () => {
@@ -1010,4 +1035,90 @@ test("frame: latest session is the most recent one within the idle window", () =
   stateForLatest("phone-a", 3_000);
   assert.equal(latestFrameSession(3_500)?.sessionId, "phone-a");
   assert.equal(latestFrameSession(3_000 + SESSION_IDLE_MS + 1), null);
+});
+
+test("frame: an unsigned delivery receipt blocks; a later view that missed the line keeps it", async () => {
+  __resetFramePath();
+  __resetLiveVerdictBus();
+  const sessionId = "pod-unsigned";
+  const first = await postFrame(
+    sessionId,
+    0,
+    judgingSpark({ judgment: { flagged: false, failures: [] }, document: "pod", paperReadings: { "pod.receivedCartons": "120", "pod.receiverSigned": "No" } }),
+  );
+  assert.equal(first?.paperVerdict?.decision, "BLOCK");
+  assert.equal(first?.paperVerdict?.state, "blocked");
+  assert.deepEqual(first?.paperVerdict?.failures.map((f) => [f.fieldId, f.rule]), [["pod.receiverSigned", "missing_signature"]]);
+  assert.equal(sessionPaperValues(sessionId)["pod.receiverSigned"], "no");
+  const state = frameStateFor(sessionId);
+  storeFrameDocument(state, "pod", { "pod.receivedCartons": "120" }, "h2", Date.now());
+  assert.equal(sessionPaperValues(sessionId)["pod.receiverSigned"], "no");
+});
+
+test("frame: a signed receipt stays quiet, an unreadable signature goes to a human", async () => {
+  __resetFramePath();
+  __resetLiveVerdictBus();
+  const signed = await postFrame(
+    "pod-signed",
+    0,
+    judgingSpark({ judgment: { flagged: false, failures: [] }, document: "pod", paperReadings: { "pod.receivedCartons": "120", "pod.receiverSigned": "yes" } }),
+  );
+  assert.equal(signed?.paperVerdict, null);
+  const covered = await postFrame(
+    "pod-covered",
+    0,
+    judgingSpark({
+      judgment: { flagged: false, failures: [] },
+      unreadable: ["pod.receiverSigned"],
+      document: "pod",
+      paperReadings: { "pod.receivedCartons": "120" },
+    }),
+  );
+  assert.equal(covered?.result.state, "needs-human");
+  assert.equal(covered?.result.failures[0]?.message, "Could not read Receiver signature from the frame.");
+  assert.equal(covered?.paperVerdict?.state, "needs-human");
+  assert.equal(covered?.paperVerdict?.decision, "ALLOW");
+  assert.deepEqual(covered?.paperVerdict?.failures.map((f) => [f.fieldId, f.rule]), [["pod.receiverSigned", "unreadable"]]);
+});
+
+test("frame: consignee is checked against the typed form and across documents", async () => {
+  __resetFramePath();
+  __resetLiveVerdictBus();
+  const frame = stripeFrame(0);
+  const posted = handleFramePost({
+    sessionId: "consignee",
+    value: jpegDataUrl(frame.gray, frame.width, frame.height),
+    typedValues: { "bol.consignee": "BLUE RIDGE DISTRIBUTION" },
+    adapters: {
+      ...stubAdapters(),
+      spark: judgingSpark({ judgment: { flagged: false, failures: [] }, document: "bol", paperReadings: { "bol.consignee": "Blue River Distribution, Inc." } }),
+    },
+  });
+  if (posted.outcome !== "accepted") throw new Error("expected accepted");
+  const done = await posted.done;
+  assert.deepEqual(done?.paperVerdict?.failures.map((f) => [f.fieldId, f.fix]), [["bol.consignee", "Blue River Distribution, Inc."]]);
+  // Formatting-only flags from the model are dropped by its own reading.
+  const formatted = await runFrameCheck({
+    image: new Uint8Array([0xff, 0xd8]),
+    frameWidth: 32,
+    frameHeight: 32,
+    typedValues: { "bol.consignee": "BLUE RIVER DIST. INC" },
+    adapters: {
+      ...stubAdapters(),
+      spark: judgingSpark({
+        judgment: { flagged: true, failures: [{ fieldId: "bol.consignee", kind: "field_match", passed: false, detail: "suffix" }] },
+        document: "bol",
+        paperReadings: { "bol.consignee": "Blue River Distribution, Inc." },
+      }),
+    },
+  });
+  assert.equal(formatted.state, "clean");
+  assert.deepEqual(formatted.failures, []);
+  // Paper vs paper: the air waybill names a different consignee.
+  const state = frameStateFor("consignee-xdoc");
+  storeFrameDocument(state, "bol", { "bol.consignee": "BLUE RIVER DISTRIBUTION" }, "a", Date.now());
+  storeFrameDocument(state, "awb", { "awb.consignee": "BLUE RIDGE DISTRIBUTION" }, "b", Date.now());
+  const { runSessionCrossDoc } = await import("./frame-path.ts");
+  const conflict = runSessionCrossDoc("consignee-xdoc", state);
+  assert.deepEqual(conflict?.failures.map((f) => [f.fieldId, f.rule]), [["awb.consignee", "cross_doc"]]);
 });
