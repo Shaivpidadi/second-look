@@ -29,3 +29,4 @@ apps/android/.gradle/
 apps/android/**/build/
 apps/android/*.jks
 apps/android/*.keystore
+test/fake-video/out/
