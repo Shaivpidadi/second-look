@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
+import android.os.Build
 import android.util.Log
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
@@ -19,7 +20,9 @@ import com.meta.wearable.dat.core.Wearables
 import com.meta.wearable.dat.core.selectors.AutoDeviceSelector
 import com.meta.wearable.dat.core.session.DeviceSession
 import com.meta.wearable.dat.core.session.DeviceSessionState
+import com.meta.wearable.dat.core.types.DatResult
 import com.meta.wearable.dat.core.types.Permission
+import com.meta.wearable.dat.core.types.PermissionError
 import com.meta.wearable.dat.core.types.PermissionStatus
 import com.meta.wearable.dat.core.types.RegistrationState
 import com.secondlook.android.frames.PhoneCameraSource
@@ -93,7 +96,14 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
      * suspends for the result. The ViewModel cannot own the
      * Activity Result launcher itself.
      */
-    var permissionRequester: (suspend (Permission) -> PermissionStatus)? = null
+    var permissionRequester: (suspend (Permission) -> DatResult<PermissionStatus, PermissionError>)? = null
+
+    /**
+     * Set by the activity: requests BLUETOOTH_CONNECT ("Nearby devices")
+     * on Android 12+. Without it the DAT SDK cannot see the glasses and
+     * its permission check fails, which used to surface as "denied".
+     */
+    var bluetoothPermissionRequester: (suspend () -> Boolean)? = null
 
     private val _isRegistered = MutableStateFlow(false)
     val isRegistered: StateFlow<Boolean> = _isRegistered.asStateFlow()
@@ -174,7 +184,33 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun register(activity: android.app.Activity) {
-        Wearables.startRegistration(activity)
+        viewModelScope.launch {
+            if (!ensureBluetoothPermission()) return@launch
+            Wearables.startRegistration(activity)
+        }
+    }
+
+    /** True when BLUETOOTH_CONNECT is held (or not needed below Android 12). */
+    private suspend fun ensureBluetoothPermission(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return true
+        val context = getApplication<Application>()
+        if (
+            ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) ==
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            return true
+        }
+        val granted = bluetoothPermissionRequester?.invoke() ?: false
+        if (!granted) {
+            setFailure(
+                glassesFailure(
+                    "Nearby devices (Bluetooth) permission is off, so the glasses are invisible. " +
+                        "Allow it in Settings > Apps > Second Look > Permissions, then tap Start.",
+                    "Allow nearby devices.",
+                ),
+            )
+        }
+        return granted
     }
 
     fun refreshPermission() {
@@ -383,9 +419,16 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
     }
 
     private suspend fun startGlasses(api: SecondLookApi): Boolean {
-        if (!ensureCameraPermission()) {
-            setFailure(permissionFailure(phone = false))
-            return false
+        if (!ensureBluetoothPermission()) return false
+        // ensureCameraPermission sets its own failure for SDK errors; only
+        // a real user denial shows the permission-denied card.
+        when (ensureCameraPermission()) {
+            CameraAccess.GRANTED -> Unit
+            CameraAccess.DENIED -> {
+                setFailure(permissionFailure(phone = false))
+                return false
+            }
+            CameraAccess.ERROR -> return false
         }
         val newSession = Wearables.createSession(AutoDeviceSelector()).getOrNull()
         if (newSession == null) {
@@ -471,26 +514,51 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    private suspend fun ensureCameraPermission(): Boolean {
-        if (_cameraGranted.value == true) return true
-        val checked = Wearables.checkPermissionStatus(Permission.CAMERA).getOrNull()
+    private enum class CameraAccess { GRANTED, DENIED, ERROR }
+
+    private suspend fun ensureCameraPermission(): CameraAccess {
+        if (_cameraGranted.value == true) return CameraAccess.GRANTED
+        var checkError: String? = null
+        val checked = Wearables.checkPermissionStatus(Permission.CAMERA).fold(
+            onSuccess = { status -> status },
+            onFailure = { error, cause ->
+                checkError = describePermissionError(error, cause)
+                null
+            },
+        )
         if (checked == null) {
-            setFailure(glassesFailure("permission check failed", null))
-            return false
+            setFailure(glassesFailure("Glasses permission check failed: ${checkError ?: "no detail"}", null))
+            return CameraAccess.ERROR
         }
         if (checked is PermissionStatus.Granted) {
             _cameraGranted.value = true
-            return true
+            return CameraAccess.GRANTED
         }
         val requester = permissionRequester
         if (requester == null) {
             setFailure(glassesFailure("camera permission request needs the activity", null))
-            return false
+            return CameraAccess.ERROR
         }
-        val result = requester(Permission.CAMERA)
-        val granted = result is PermissionStatus.Granted
+        var requestError: String? = null
+        val status = requester(Permission.CAMERA).fold(
+            onSuccess = { it },
+            onFailure = { error, cause ->
+                requestError = describePermissionError(error, cause)
+                null
+            },
+        )
+        if (status == null) {
+            setFailure(glassesFailure("Camera permission request failed: ${requestError ?: "no detail"}", null))
+            return CameraAccess.ERROR
+        }
+        val granted = status is PermissionStatus.Granted
         _cameraGranted.value = granted
-        return granted
+        return if (granted) CameraAccess.GRANTED else CameraAccess.DENIED
+    }
+
+    private fun describePermissionError(error: PermissionError, cause: Throwable?): String {
+        val detail = cause?.message?.takeIf { it.isNotBlank() }
+        return if (detail == null) error.toString() else "$error ($detail)"
     }
 
     private suspend fun attachCamera(active: DeviceSession, api: SecondLookApi) {

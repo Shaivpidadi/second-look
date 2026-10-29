@@ -1,6 +1,7 @@
 package com.secondlook.android
 
 import android.Manifest
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -10,6 +11,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.darkColorScheme
 import com.meta.wearable.dat.core.Wearables
+import com.meta.wearable.dat.core.types.DatResult
+import com.meta.wearable.dat.core.types.PermissionError
 import com.meta.wearable.dat.core.types.PermissionStatus
 import com.secondlook.android.session.SessionViewModel
 import com.secondlook.android.ui.MainScreen
@@ -25,13 +28,22 @@ import kotlin.coroutines.suspendCoroutine
 class MainActivity : ComponentActivity() {
     private val viewModel: SessionViewModel by viewModels()
 
-    private var pendingPermission: ((PermissionStatus) -> Unit)? = null
+    private var pendingPermission: ((DatResult<PermissionStatus, PermissionError>) -> Unit)? = null
 
+    // The whole result goes to the ViewModel: a PermissionError (Meta AI
+    // missing, glasses not linked, ...) must show as itself, not as "denied".
     private val permissionLauncher =
         registerForActivityResult(Wearables.RequestPermissionContract()) { result ->
-            val status = result.getOrDefault(PermissionStatus.Denied)
-            pendingPermission?.invoke(status)
+            pendingPermission?.invoke(result)
             pendingPermission = null
+        }
+
+    private var pendingBluetooth: ((Boolean) -> Unit)? = null
+
+    private val bluetoothLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            pendingBluetooth?.invoke(granted)
+            pendingBluetooth = null
         }
 
     private var pendingCamera: ((Boolean) -> Unit)? = null
@@ -48,6 +60,16 @@ class MainActivity : ComponentActivity() {
             suspendCoroutine { continuation ->
                 pendingPermission = { status -> continuation.resume(status) }
                 permissionLauncher.launch(permission)
+            }
+        }
+        viewModel.bluetoothPermissionRequester = {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+                true
+            } else {
+                suspendCoroutine { continuation ->
+                    pendingBluetooth = { granted -> continuation.resume(granted) }
+                    bluetoothLauncher.launch(Manifest.permission.BLUETOOTH_CONNECT)
+                }
             }
         }
         viewModel.phoneLifecycleOwner = this
