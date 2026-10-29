@@ -15,6 +15,9 @@ if (localFile.exists()) {
 // real values come from local.properties and are never committed.
 val datAppId: String = localProperties.getProperty("mwdat.applicationId", "0")
 val datClientToken: String = localProperties.getProperty("mwdat.clientToken", "0")
+// Default server URL baked into the app; set secondlook.serverUrl in local.properties
+// to your dev machine's LAN address so the field is prefilled.
+val defaultServerUrl: String = localProperties.getProperty("secondlook.serverUrl", "http://10.0.2.2:3100")
 
 android {
     namespace = "com.secondlook.android"
@@ -28,6 +31,7 @@ android {
         versionName = "0.1.0"
         manifestPlaceholders["mwdat_application_id"] = datAppId
         manifestPlaceholders["mwdat_client_token"] = datClientToken
+        buildConfigField("String", "DEFAULT_SERVER_URL", "\"$defaultServerUrl\"")
     }
 
     buildTypes {
@@ -44,6 +48,7 @@ android {
         jvmTarget = "17"
     }
     buildFeatures {
+        buildConfig = true
         compose = true
     }
 }

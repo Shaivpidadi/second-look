@@ -75,7 +75,7 @@ private const val MAX_VERDICTS = 20
  */
 class SessionViewModel(application: Application) : AndroidViewModel(application) {
     /** Base URL of the Second Look web app (emulator loopback by default). */
-    var serverUrl = "http://10.0.2.2:3100"
+    var serverUrl = com.secondlook.android.BuildConfig.DEFAULT_SERVER_URL
         private set
 
     /**
