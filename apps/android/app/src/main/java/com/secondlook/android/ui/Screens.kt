@@ -27,6 +27,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import com.meta.wearable.dat.core.Wearables
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
@@ -151,6 +153,18 @@ fun CameraScreen(viewModel: SessionViewModel, onPreflight: () -> Unit) {
                 if (phoneFallbackOffered(it.kind, source)) {
                     Button(onClick = { viewModel.usePhoneFallback() }) { Text("Use phone camera") }
                 }
+            }
+            if (it.detail.contains("UPDATE_REQUIRED")) {
+                val context = LocalContext.current
+                Button(onClick = {
+                    (context as? Activity)?.let { activity ->
+                        if (it.detail.contains("DAT_APP")) {
+                            Wearables.openDATGlassesAppUpdate(activity)
+                        } else {
+                            Wearables.openFirmwareUpdate(activity)
+                        }
+                    }
+                }) { Text("Update glasses app") }
             }
         }
         Text("Verdicts", style = MaterialTheme.typography.titleMedium)
