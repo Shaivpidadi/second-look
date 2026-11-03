@@ -113,3 +113,7 @@ Every env var the code reads is in `.env.example`: `MODEL_API_KEY`,
 - [docs/EVAL.md](docs/EVAL.md): full eval tables and clip path
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): packages, env vars, real vs stubbed
 - [STATUS.md](STATUS.md): per-batch measurements and spend
+
+## License
+
+MIT. See [LICENSE](LICENSE).
