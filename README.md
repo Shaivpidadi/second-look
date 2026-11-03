@@ -11,7 +11,7 @@ works in both directions, paper first or typing first.
 
 ![Second Look blocking a swapped AWB digit and proposing the paper value](docs/shots/demo-step1-1920.png)
 
-Demo video: link coming
+Demo video: [watch the 3-minute demo on Vimeo](https://vimeo.com/1242879630)
 
 ## How it works
 
