@@ -130,7 +130,7 @@ def render_bol(f):
 
 def render_awb(f):
     p = Page()
-    p.title("AIR WAYBILL", "Not negotiable - issued by Lufthansa Cargo (synthetic)")
+    p.title("AIR WAYBILL", "Not negotiable - issued by Harrow Bay Air Cargo (synthetic)")
     p.row([("AWB number", fmt_awb(f["awbNumber"]), 0.6), ("Origin / Dest", f.get("route", "FRA / EWR"), 0.4)])
     p.block("Shipper", [f.get("shipper", "NORTHWIND COMPONENTS LTD"), "Felixstowe, UK"], 110)
     p.block("Consignee", [f.get("consignee", "BLUE RIVER DISTRIBUTION"), "Newark NJ, USA"], 110)

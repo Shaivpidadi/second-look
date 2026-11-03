@@ -114,6 +114,7 @@ const DENY = [
   "XPO Logistics",
   "Citibank",
   "Revlon",
+  "Lufthansa",
 ];
 const FIXTURE_FILES = [
   join(ROOT, "apps/web/lib/demo-data.ts"),
@@ -121,6 +122,8 @@ const FIXTURE_FILES = [
   ...walk(join(ROOT, "eval/generator/src"), [".ts"]),
   ...walk(join(ROOT, "eval/corpus"), [".json"]),
   ...walk(join(ROOT, "eval/corpus-hard"), [".json"]),
+  join(ROOT, "test/fake-video/render.py"),
+  join(ROOT, "test/fake-video/scenarios.mjs"),
 ];
 for (const path of FIXTURE_FILES) {
   let body;
