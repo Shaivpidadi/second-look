@@ -13,7 +13,7 @@ Hard deadline: Nov 4, 9pm ET (event page). Internal target: finish by Nov 3, 9pm
       Human records and reviews.
 - [ ] Video shows only work built during the event (Oct 27 to Nov 4).
 - [ ] Every number in the video and description matches README/STATUS
-      (table in README "Eval" section; detail in STATUS.md;
+      (headline table in README "Results"; full tables in docs/EVAL.md; detail in STATUS.md;
       `docs/video/` covered by the headline number guard).
 - [ ] Stub arms still labelled `(stubbed)` wherever they appear.
 - [ ] Commits authored only by the local git identity (Shaishav Pidadi);
@@ -86,6 +86,6 @@ hard split, where validators alone fall to 39.4%. The vision arm
 reads paper pixels directly and holds 100%, including 5 near-miss
 forms no text signal can catch. End-to-end checks land under 5
 seconds live (3.4s block with fix, 4.9s warn with escalation);
-tiered text checks cost about $0.003 per form. Full tables are in
-the repo README, with shapes, p50/p95 latency, and spend in
+tiered text checks cost about $0.003 per form. Headline rows are in
+the repo README, full tables in docs/EVAL.md, with shapes, p50/p95 latency, and spend in
 STATUS.md.
